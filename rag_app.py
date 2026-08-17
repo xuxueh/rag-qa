@@ -1,7 +1,7 @@
 """
-📚 企业知识库问答系统（RAG 网页版 - 聊天版 v2）
-=========================================
-修复：示例问题按钮直接触发提问
+📚 企业知识库问答系统（RAG 网页版）
+=================================
+兼容本地（Windows/.env）与云端（Streamlit Cloud/Secrets）
 运行: streamlit run rag_app.py
 """
 
@@ -16,9 +16,12 @@ from langchain_chroma import Chroma
 from langchain_openai import ChatOpenAI
 
 # ═══════════════ 配置 ═══════════════
-ENV_FILE = Path(r"C:\Users\xujin\ai-learning\项目\rag-qa\.env")
-DOC_PATH = "公司制度.txt"
-EMBEDDING_MODEL_PATH = r"C:\Users\xujin\ai-learning\data\models\gte-small\models\iic--nlp_gte_sentence-embedding_chinese-small\snapshots\master"
+ENV_FILE = Path(__file__).parent / ".env"
+DOC_PATH = str(Path(__file__).parent / "公司制度.txt")
+
+# 嵌入模型：默认用 HF 模型名（云端自动下载）
+# 本地可用 .env 里的 EMBEDDING_MODEL 覆盖为本地路径（更快）
+DEFAULT_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 # ═══════════════════════════════════
 
 EXAMPLE_QUESTIONS = [
@@ -30,9 +33,17 @@ EXAMPLE_QUESTIONS = [
 
 
 def load_key():
+    """读取 key：优先 Streamlit Secrets（云端），其次 .env（本地）"""
+    # 云端：Streamlit Secrets
     try:
-        with open(ENV_FILE, "r", encoding="utf-8") as f:
-            for line in f:
+        if "DEEPSEEK_API_KEY" in st.secrets:
+            return st.secrets["DEEPSEEK_API_KEY"]
+    except Exception:
+        pass
+    # 本地：.env 文件
+    try:
+        if ENV_FILE.exists():
+            for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
                 line = line.strip()
                 if line.startswith("DEEPSEEK_API_KEY="):
                     return line.split("=", 1)[1]
@@ -41,7 +52,21 @@ def load_key():
     return None
 
 
+def load_embedding_model():
+    """读取嵌入模型配置：.env 有就用本地路径，否则用 HF 模型名"""
+    try:
+        if ENV_FILE.exists():
+            for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line.startswith("EMBEDDING_MODEL="):
+                    return line.split("=", 1)[1]
+    except Exception:
+        pass
+    return DEFAULT_EMBEDDING_MODEL
+
+
 DEEPSEEK_API_KEY = load_key()
+EMBEDDING_MODEL = load_embedding_model()
 
 st.set_page_config(page_title="智能知识库问答", page_icon="🤖")
 
@@ -51,7 +76,7 @@ st.caption("基于 RAG：LangChain + Chroma + DeepSeek")
 
 @st.cache_resource
 def build_db():
-    embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_PATH)
+    embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
     loader = TextLoader(DOC_PATH, encoding='utf-8')
     documents = loader.load()
     splitter = CharacterTextSplitter(chunk_size=200, chunk_overlap=20)
@@ -95,6 +120,9 @@ with st.sidebar:
         db = build_db()
     st.success("✅ 知识库已加载")
 
+    if not DEEPSEEK_API_KEY:
+        st.error("❌ 未配置 DEEPSEEK_API_KEY（云端用 Secrets，本地用 .env）")
+
     st.divider()
     st.subheader("💡 示例问题")
     selected = None
@@ -117,17 +145,15 @@ for msg in st.session_state["messages"]:
                     st.markdown(f"**片段 {i}**（相关度 {score:.3f}）")
                     st.info(doc.page_content)
 
-# ─── 输入：底部输入框 或 示例按钮 ───
+# ─── 输入 ───
 user_input = st.chat_input("输入你的问题...")
 question = selected if selected else user_input
 
 if question:
-    # 用户气泡
     with st.chat_message("user"):
         st.write(question)
     st.session_state["messages"].append({"role": "user", "content": question})
 
-    # AI 气泡
     with st.chat_message("assistant"):
         with st.spinner("🤔 思考中..."):
             answer, docs = answer_question(question, db)
