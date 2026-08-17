@@ -1,7 +1,7 @@
 """
-📚 企业知识库问答系统（RAG 网页版 - 稳定版 v2）
+📚 企业知识库问答系统（RAG 网页版 - 聊天版 v2）
 =========================================
-修复：示例问题按钮可用
+修复：示例问题按钮直接触发提问
 运行: streamlit run rag_app.py
 """
 
@@ -20,6 +20,13 @@ ENV_FILE = Path(r"C:\Users\xujin\ai-learning\项目\rag-qa\.env")
 DOC_PATH = "公司制度.txt"
 EMBEDDING_MODEL_PATH = r"C:\Users\xujin\ai-learning\data\models\gte-small\models\iic--nlp_gte_sentence-embedding_chinese-small\snapshots\master"
 # ═══════════════════════════════════
+
+EXAMPLE_QUESTIONS = [
+    "报销金额超过 5000 元需要谁审批？",
+    "迟到超过 30 分钟怎么处理？",
+    "年假有几天？",
+    "加班怎么调休？",
+]
 
 
 def load_key():
@@ -77,7 +84,11 @@ def answer_question(question, db):
     return answer, docs
 
 
-# ─── 侧边栏：示例问题 ───
+# ─── 初始化 ───
+if "messages" not in st.session_state:
+    st.session_state["messages"] = []
+
+# ─── 侧边栏 ───
 with st.sidebar:
     st.header("📋 知识库")
     with st.spinner("加载知识库..."):
@@ -86,37 +97,47 @@ with st.sidebar:
 
     st.divider()
     st.subheader("💡 示例问题")
-    for q in [
-        "报销金额超过 5000 元需要谁审批？",
-        "迟到超过 30 分钟怎么处理？",
-        "年假有几天？",
-        "加班怎么调休？",
-    ]:
+    selected = None
+    for q in EXAMPLE_QUESTIONS:
         if st.button(q, use_container_width=True, key=f"btn_{q}"):
-            st.session_state["question"] = q   # 点按钮 → 存问题
-            st.rerun()                          # 立即刷新
+            selected = q
 
-# ─── 输入区 ───
-question = st.text_input(
-    "❓ 你的问题：",
-    placeholder="输入问题后按回车，或点左侧示例",
-    value=st.session_state.get("question", ""),
-)
+    st.divider()
+    if st.button("🗑️ 清空对话", use_container_width=True):
+        st.session_state["messages"] = []
+        st.rerun()
 
-# ─── 提问处理（去重：同一问题只处理一次）───
-if question and question != st.session_state.get("last_q"):
-    st.session_state["last_q"] = question
+# ─── 展示聊天记录 ───
+for msg in st.session_state["messages"]:
+    with st.chat_message(msg["role"]):
+        st.write(msg["content"])
+        if "docs" in msg and msg["docs"]:
+            with st.expander("📄 引用来源"):
+                for i, (doc, score) in enumerate(msg["docs"], 1):
+                    st.markdown(f"**片段 {i}**（相关度 {score:.3f}）")
+                    st.info(doc.page_content)
 
-    with st.spinner("🤔 思考中..."):
-        answer, docs = answer_question(question, db)
+# ─── 输入：底部输入框 或 示例按钮 ───
+user_input = st.chat_input("输入你的问题...")
+question = selected if selected else user_input
 
-    st.markdown("---")
-    st.markdown(f"**❓ 问题：** {question}")
-    st.markdown(f"**🤖 回答：**")
-    st.write(answer)
+if question:
+    # 用户气泡
+    with st.chat_message("user"):
+        st.write(question)
+    st.session_state["messages"].append({"role": "user", "content": question})
 
-    st.markdown("---")
-    with st.expander(f"📄 引用来源（{len(docs)} 个片段）"):
-        for i, (doc, score) in enumerate(docs, 1):
-            st.markdown(f"**片段 {i}**（相关度 {score:.3f}）")
-            st.info(doc.page_content)
+    # AI 气泡
+    with st.chat_message("assistant"):
+        with st.spinner("🤔 思考中..."):
+            answer, docs = answer_question(question, db)
+        st.write(answer)
+        if docs:
+            with st.expander("📄 引用来源"):
+                for i, (doc, score) in enumerate(docs, 1):
+                    st.markdown(f"**片段 {i}**（相关度 {score:.3f}）")
+                    st.info(doc.page_content)
+
+    st.session_state["messages"].append(
+        {"role": "assistant", "content": answer, "docs": docs}
+    )
