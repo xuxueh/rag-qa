@@ -1,0 +1,12 @@
+# 忽略敏感文件和缓存
+__pycache__/
+*.pyc
+.env
+
+# 忽略本地模型缓存（太大，别传 GitHub）
+*.bin
+.cache/
+models/
+
+# 向量库数据
+chroma_data/
