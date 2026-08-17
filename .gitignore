@@ -10,3 +10,4 @@ models/
 
 # 向量库数据
 chroma_data/
+chroma_db/
