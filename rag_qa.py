@@ -8,6 +8,26 @@
 """
 
 import os
+import sys
+
+# Windows 控制台默认 GBK 编码，print ✓ 等字符会报错；强制 UTF-8（Day 2 学过的坑）
+sys.stdout.reconfigure(encoding="utf-8")
+
+
+def load_env(path):
+    """加载 .env 文件到环境变量（不依赖 python-dotenv）"""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ[k.strip()] = v.strip()
+    except FileNotFoundError:
+        pass
+
+
+load_env(os.path.join(os.path.dirname(__file__), ".env"))
 
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
@@ -16,10 +36,10 @@ from langchain_openai import ChatOpenAI
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain_text_splitters import CharacterTextSplitter
 
-# ═══════════════ 配置区（改成你自己的） ═══════════════
-DEEPSEEK_API_KEY = "sk-你的key"          # ← 填你的 DeepSeek API key
-DOC_DIR = r"C:\Users\xujin\ai-learning\项目\rag-qa\知识库"   # 知识库文档目录
-EMBEDDING_MODEL_PATH = r"C:\Users\xujin\ai-learning\data\models\gte-embedding\models\iic--nlp_gte_sentence-embedding_chinese-base\snapshots\master"
+# ═══════════════ 配置区（从 .env 读取） ═══════════════
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "sk-你的key")
+DOC_DIR = r"C:\Users\xujin\ai-learning\项目\rag-qa\知识库"   # 知识库文档目录（12 份公司制度）
+EMBEDDING_MODEL_PATH = os.environ.get("EMBEDDING_MODEL", "")  # 从 .env 读 gte-small 路径
 # ══════════════════════════════════════════════════════
 
 
@@ -42,15 +62,19 @@ def build_knowledge_base(doc_dir, embedding_model_path):
     return db, embeddings
 
 
-def ask(question, db, llm, k=3):
-    """RAG 问答：检索最相关片段 → 拼接 prompt → 大模型生成"""
-    # 1. 语义检索最相关的 k 块（带来源文件名）
-    docs = db.similarity_search(question, k=k)
+def ask(question, retriever, llm, k=3):
+    """RAG 问答：混合检索（召回 top-10）→ rerank 精排 → 拼接 prompt → 大模型生成"""
+    # 1. 混合检索召回 top-10（向量 + BM25，先找得多）
+    recall = retriever.retrieve(question, top_k=10)
+
+    # 2. rerank 精排，取 top-k（再排得准）
+    from rerank import rerank
+    ranked = rerank(question, recall, top_n=k)
+
+    # 3. 组装上下文（用 retriever 溯源：块文本 → 来源文件名）
     parts = []
-    for d in docs:
-        src = d.metadata.get("source", "未知")
-        filename = src.rsplit("\\", 1)[-1].rsplit("/", 1)[-1]
-        parts.append(f"[来源：{filename}]\n{d.page_content}")
+    for t in ranked:
+        parts.append(f"[来源：{retriever.get_source(t)}]\n{t}")
     context = "\n\n".join(parts)
 
     # 2. 拼接 prompt（资料 + 问题）
@@ -74,8 +98,9 @@ def ask(question, db, llm, k=3):
 
 
 def main():
-    # 构建知识库
-    db, _ = build_knowledge_base(DOC_DIR, EMBEDDING_MODEL_PATH)
+    # 构建混合检索器（向量 + BM25，含溯源）
+    from hybrid_retriever import build_hybrid
+    retriever = build_hybrid(DOC_DIR, EMBEDDING_MODEL_PATH)
 
     # 配置大模型
     llm = ChatOpenAI(
@@ -95,7 +120,7 @@ def main():
             break
         if not question:
             continue
-        answer = ask(question, db, llm)
+        answer = ask(question, retriever, llm)
         print(f"\n回答：{answer}")
 
 
