@@ -67,7 +67,7 @@ def build_hybrid(doc_dir: str, embedding_model_path: str) -> HybridRetriever:
     """构建知识库 + BM25 索引，返回 HybridRetriever"""
     # 复用 rag_qa 的加载/切块逻辑
     from langchain_community.document_loaders import DirectoryLoader, TextLoader
-    from langchain_text_splitters import CharacterTextSplitter
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
     from langchain_huggingface import HuggingFaceEmbeddings
     from langchain_chroma import Chroma
 
@@ -75,7 +75,17 @@ def build_hybrid(doc_dir: str, embedding_model_path: str) -> HybridRetriever:
     documents = loader.load()
     print(f"✓ 加载文档: {len(documents)} 份")
 
-    splitter = CharacterTextSplitter(chunk_size=200, chunk_overlap=20)
+    # 文本清洗（去空白/统一换行/去重；对 PDF 等脏文本有效，对干净文档无影响）
+    from clean_pipeline import clean_document
+    for doc in documents:
+        doc.page_content = clean_document(doc.page_content)
+
+    # 切块：按中文句子边界递归切（对长文档更鲁棒；评测 47 块与硬切无差异）
+    splitter = RecursiveCharacterTextSplitter(
+        separators=["\n\n", "\n", "。", "！", "？", "；", "，", " ", ""],
+        chunk_size=200,
+        chunk_overlap=20,
+    )
     chunks = splitter.split_documents(documents)
     print(f"✓ 切块: {len(chunks)} 块")
 

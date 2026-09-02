@@ -50,8 +50,18 @@ def build_knowledge_base(doc_dir, embedding_model_path):
     documents = loader.load()
     print(f"✓ 加载文档: {len(documents)} 份")
 
-    # 2. 切块（200字/块，重叠20字保持上下文连贯）
-    splitter = CharacterTextSplitter(chunk_size=200, chunk_overlap=20)
+    # 文本清洗（对干净文档无影响，对未来 PDF/脏文本有效）
+    from clean_pipeline import clean_document
+    for doc in documents:
+        doc.page_content = clean_document(doc.page_content)
+
+    # 2. 切块（200字/块，重叠20字；按中文句子边界递归切）
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    splitter = RecursiveCharacterTextSplitter(
+        separators=["\n\n", "\n", "。", "！", "？", "；", "，", " ", ""],
+        chunk_size=200,
+        chunk_overlap=20,
+    )
     chunks = splitter.split_documents(documents)
     print(f"✓ 切块: {len(chunks)} 块")
 
