@@ -7,3 +7,5 @@ langchain-openai
 chromadb
 sentence-transformers
 modelscope
+jieba
+rank_bm25
