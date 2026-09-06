@@ -97,7 +97,7 @@ def answer_question(question, retriever):
     # 3. 组装上下文（带来源）
     parts, sources = [], []
     for t in ranked:
-        fn = retriever.get_source(t)
+        fn = retriever.get_citation(t)
         parts.append(f"[来源：{fn}]\n{t}")
         sources.append({"text": t, "source": fn})
     context = "\n\n".join(parts)

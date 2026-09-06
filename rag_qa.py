@@ -85,7 +85,7 @@ def ask(question, retriever, llm, k=3):
     # 3. 组装上下文（用 retriever 溯源：块文本 → 来源文件名）
     parts = []
     for t in ranked:
-        parts.append(f"[来源：{retriever.get_source(t)}]\n{t}")
+        parts.append(f"[来源：{retriever.get_citation(t)}]\n{t}")
     context = "\n\n".join(parts)
 
     # 2. 拼接 prompt（资料 + 问题）

@@ -21,14 +21,50 @@ import rag_qa as rq
 # jieba 首次加载会打印日志，静音
 jieba.setLogLevel(20)
 
+_CN_NUMS = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9,
+            "十": 10, "十一": 11, "十二": 12, "十三": 13, "十四": 14, "十五": 15,
+            "0": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9}
+
+
+def extract_articles(text: str) -> list[int]:
+    """从 chunk 文本中提取所有条款号（第X条 → 数字列表）"""
+    import re
+    found = []
+    for m in re.finditer(r"第\s*([一二三四五六七八九十0-9]+)\s*条", text):
+        num_str = m.group(1)
+        if num_str in _CN_NUMS:
+            found.append(_CN_NUMS[num_str])
+    # 去重保序
+    seen, out = set(), []
+    for n in found:
+        if n not in seen:
+            seen.add(n)
+            out.append(n)
+    return out
+
+
+def format_citation(filename: str, articles: list[int]) -> str:
+    """格式化引用：'01-考勤管理制度.txt · 第三条'"""
+    if not articles:
+        return filename
+    parts = "、".join(f"第{_int_to_cn(a)}条" if a <= 10 else f"第{a}条" for a in articles)
+    return f"{filename} · {parts}"
+
+
+def _int_to_cn(n: int) -> str:
+    cn = {1: "一", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六", 7: "七", 8: "八", 9: "九", 10: "十"}
+    return cn.get(n, str(n))
+
 
 class HybridRetriever:
     """混合检索器：向量检索 + BM25 关键词检索，RRF 融合排序"""
 
-    def __init__(self, db, chunk_texts: list[str], text2src: dict | None = None):
+    def __init__(self, db, chunk_texts: list[str], text2src: dict | None = None,
+                 text2articles: dict | None = None):
         self.db = db
         self.chunk_texts = chunk_texts  # 与 db 中的块一一对应
         self.text2src = text2src or {}  # 块文本 → 来源文件名（溯源用）
+        self.text2articles = text2articles or {}  # 块文本 → 条款号列表（Citation）
         # 构建 BM25 索引（jieba 分词）
         tokenized = [jieba.lcut(t) for t in chunk_texts]
         self.bm25 = BM25Okapi(tokenized)
@@ -36,6 +72,12 @@ class HybridRetriever:
     def get_source(self, text: str) -> str:
         """返回某块文本的来源文件名（溯源）"""
         return self.text2src.get(text, "未知")
+
+    def get_citation(self, text: str) -> str:
+        """返回完整引用：'01-考勤管理制度.txt · 第三条'（Citation）"""
+        fn = self.text2src.get(text, "未知")
+        articles = self.text2articles.get(text, [])
+        return format_citation(fn, articles)
 
     def retrieve(self, query: str, top_k: int = 5, rrf_k: int = 60) -> list[str]:
         """混合检索：返回 top_k 个文档文本（RRF 融合排序）"""
@@ -95,15 +137,17 @@ def build_hybrid(doc_dir: str, embedding_model_path: str) -> HybridRetriever:
 
     chunk_texts = [c.page_content for c in chunks]  # 与 db 块顺序一致
 
-    # 构建 文本 → 来源文件名 映射（溯源用）
+    # 构建 文本 → 来源文件名 + 条款号 映射（Citation 溯源用）
     text2src = {}
+    text2articles = {}
     for c in chunks:
         src = c.metadata.get("source", "")
         fn = src.rsplit("\\", 1)[-1].rsplit("/", 1)[-1]
         text2src[c.page_content] = fn
+        text2articles[c.page_content] = extract_articles(c.page_content)
 
     print("✓ BM25 索引构建完成")
-    return HybridRetriever(db, chunk_texts, text2src)
+    return HybridRetriever(db, chunk_texts, text2src, text2articles)
 
 
 if __name__ == "__main__":
