@@ -69,8 +69,8 @@ def root():
 def ask(q: Question):
     start = time.time()
 
-    # 1. 混合检索召回 top-10（向量 + BM25）
-    recall = retriever.retrieve(q.question, top_k=10)
+    # 1. 混合检索召回 top-5（评测支撑：Top-5 命中 100%，rerank 5 候选精度无损）
+    recall = retriever.retrieve(q.question, top_k=5)
 
     # 2. rerank 精排取 top-3
     ranked = rerank(q.question, recall, top_n=3)
