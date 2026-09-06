@@ -1,52 +1,63 @@
 """
-📚 RAG 问答 API 服务（生产链路版）
-==================================
-把 RAG 包成 API：任何人发 POST 请求就能问知识库
-生产链路：文本清洗 → 句子边界切块 → 混合检索(BM25+向量 RRF) → rerank 精排 → DeepSeek 生成
+📚 RAG 问答 API 服务 v3（生产链路 + 文档管理）
+================================================
+生产链路：清洗 → 句子边界切块 → 混合检索(RRF) → rerank → DeepSeek 生成 → Citation
 
-启动: python run_server.py （或 uvicorn rag_api:app）
-测试: curl -X POST http://localhost:8000/ask -H "Content-Type: application/json" -d '{"question":"年假有几天？"}'
+文档管理：
+- GET    /documents              列出知识库文档
+- POST   /documents/upload       上传文档（txt/md/pdf/docx）→ 自动重建检索器
+- DELETE /documents/{name}       删除文档 → 自动重建检索器
+
+启动: python run_server.py
 """
-
 import os
 import sys
 import time
+import threading
 from pathlib import Path
 
-# Windows 控制台 UTF-8
 sys.stdout.reconfigure(encoding="utf-8")
-
 # ⚠️ 清理 PYTHONPATH 污染（Hermes 终端会注入 Python 3.11 的包路径）
 os.environ.pop("PYTHONPATH", None)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-# ⚠️ 导入顺序有讲究（Windows DLL 加载顺序）：
-# 必须先加载 huggingface/chroma/openai，再加载 TextLoader/text_splitters
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_chroma import Chroma
 from langchain_openai import ChatOpenAI
-from langchain_community.document_loaders import DirectoryLoader, TextLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-# 复用生产链路模块
 import rag_qa as rq
 from hybrid_retriever import build_hybrid
 from rerank import rerank
 
-# ═══════════════ 配置（从 rag_qa 读） ═══════════════
+# ═══════════════ 配置 ═══════════════
 DOC_DIR = rq.DOC_DIR
 EMBEDDING_MODEL = rq.EMBEDDING_MODEL_PATH
-# ═══════════════════════════════════════════════════
+ALLOWED_EXT = {".txt", ".md", ".pdf", ".docx"}
+# ════════════════════════════════════
 
-# ─── 构建混合检索器（启动时加载一次）───
-print("构建混合检索器（生产链路）...（约 1-2 分钟）")
-retriever = build_hybrid(DOC_DIR, EMBEDDING_MODEL)
-print(f"✅ 检索器构建完成（混合检索 + rerank 就绪）")
+app = FastAPI(title="RAG 问答 API v3（生产链路 + 文档管理）", version="3.0")
 
-# ─── FastAPI 应用 ───
-app = FastAPI(title="RAG 问答 API（生产链路）", version="2.0")
+# 全局检索器（懒加载 + 可重建）
+_retriever = None
+_rebuild_lock = threading.Lock()
+
+
+def get_retriever():
+    global _retriever
+    if _retriever is None:
+        print("构建混合检索器（首次约 1-2 分钟）...")
+        _retriever = build_hybrid(DOC_DIR, EMBEDDING_MODEL)
+        print("✅ 检索器就绪")
+    return _retriever
+
+
+def rebuild_retriever():
+    """文档变更后重建检索器"""
+    global _retriever
+    with _rebuild_lock:
+        print("🔄 文档变更，重建检索器...（约 1-2 分钟）")
+        _retriever = build_hybrid(DOC_DIR, EMBEDDING_MODEL)
+        print("✅ 重建完成")
 
 
 class Question(BaseModel):
@@ -55,42 +66,34 @@ class Question(BaseModel):
 
 class Answer(BaseModel):
     answer: str
-    sources: list[dict]  # [{text, source}]
+    sources: list[dict]
 
 
+# ─── 页面 ───
 @app.get("/", response_class=HTMLResponse)
 def root():
-    """返回问答网页界面（自包含，无 CDN 依赖）"""
     html_path = Path(__file__).parent / "static" / "index.html"
     return html_path.read_text(encoding="utf-8")
 
 
+# ─── 问答 ───
 @app.post("/ask", response_model=Answer)
 def ask(q: Question):
+    retriever = get_retriever()
     start = time.time()
 
-    # 1. 混合检索召回 top-5（评测支撑：Top-5 命中 100%，rerank 5 候选精度无损）
     recall = retriever.retrieve(q.question, top_k=5)
-
-    # 2. rerank 精排取 top-3
     ranked = rerank(q.question, recall, top_n=3)
 
-    # 3. 组装上下文（带来源）
-    parts = []
-    sources = []
+    parts, sources = [], []
     for t in ranked:
         fn = retriever.get_citation(t)
         parts.append(f"[来源：{fn}]\n{t}")
         sources.append({"text": t, "source": fn})
     context = "\n\n".join(parts)
 
-    # 4. DeepSeek 生成
-    llm = ChatOpenAI(
-        model="deepseek-chat",
-        api_key=rq.DEEPSEEK_API_KEY,
-        base_url="https://api.deepseek.com",
-        temperature=0,
-    )
+    llm = ChatOpenAI(model="deepseek-chat", api_key=rq.DEEPSEEK_API_KEY,
+                     base_url="https://api.deepseek.com", temperature=0)
     prompt = f"""根据以下资料回答问题。如果资料里没有答案，就说不知道，不要瞎编。
 
 回答要求：
@@ -105,7 +108,44 @@ def ask(q: Question):
 
 回答："""
     answer = llm.invoke(prompt).content
-
     elapsed = round(time.time() - start, 2)
     print(f"⏱️ [{elapsed}s] Q: {q.question}")
     return Answer(answer=answer, sources=sources)
+
+
+# ─── 文档管理 ───
+@app.get("/documents")
+def list_documents():
+    files = [f for f in sorted(os.listdir(DOC_DIR))
+             if os.path.isfile(os.path.join(DOC_DIR, f))
+             and Path(f).suffix.lower() in ALLOWED_EXT]
+    return {"documents": files, "count": len(files)}
+
+
+@app.post("/documents/upload")
+async def upload_document(file: UploadFile = File(...)):
+    ext = Path(file.filename).suffix.lower()
+    if ext not in ALLOWED_EXT:
+        raise HTTPException(400, f"不支持的文件类型 {ext}，支持: {ALLOWED_EXT}")
+    # 防路径穿越
+    safe_name = Path(file.filename).name
+    dest = Path(DOC_DIR) / safe_name
+    content = await file.read()
+    with open(dest, "wb") as f:
+        f.write(content)
+    print(f"📄 上传: {safe_name} ({len(content)} bytes)")
+    # 重建（新文档入库后检索才生效）
+    rebuild_retriever()
+    return {"ok": True, "uploaded": safe_name, "note": "检索器已重建"}
+
+
+@app.delete("/documents/{filename}")
+def delete_document(filename: str):
+    safe_name = Path(filename).name
+    path = Path(DOC_DIR) / safe_name
+    if not path.exists():
+        raise HTTPException(404, f"文档不存在: {safe_name}")
+    os.remove(path)
+    print(f"🗑️ 删除: {safe_name}")
+    rebuild_retriever()
+    return {"ok": True, "deleted": safe_name, "note": "检索器已重建"}
