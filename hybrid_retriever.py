@@ -113,8 +113,9 @@ def build_hybrid(doc_dir: str, embedding_model_path: str) -> HybridRetriever:
     from langchain_huggingface import HuggingFaceEmbeddings
     from langchain_chroma import Chroma
 
-    loader = DirectoryLoader(doc_dir, glob="*.txt", loader_cls=TextLoader, loader_kwargs={"encoding": "utf-8"})
-    documents = loader.load()
+    # 多格式加载（txt/md/pdf/docx）
+    from smart_loader import load_documents
+    documents = load_documents(doc_dir)
     print(f"✓ 加载文档: {len(documents)} 份")
 
     # 文本清洗（去空白/统一换行/去重；对 PDF 等脏文本有效，对干净文档无影响）

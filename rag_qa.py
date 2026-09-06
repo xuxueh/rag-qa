@@ -45,9 +45,9 @@ EMBEDDING_MODEL_PATH = os.environ.get("EMBEDDING_MODEL", "")  # 从 .env 读 gte
 
 def build_knowledge_base(doc_dir, embedding_model_path):
     """构建向量知识库：加载目录全部文档 → 切块 → 嵌入 → 存储"""
-    # 1. 加载目录下所有文档
-    loader = DirectoryLoader(doc_dir, glob="*.txt", loader_cls=TextLoader, loader_kwargs={"encoding": "utf-8"})
-    documents = loader.load()
+    # 1. 多格式加载目录下所有文档（txt/md/pdf/docx）
+    from smart_loader import load_documents
+    documents = load_documents(doc_dir)
     print(f"✓ 加载文档: {len(documents)} 份")
 
     # 文本清洗（对干净文档无影响，对未来 PDF/脏文本有效）
