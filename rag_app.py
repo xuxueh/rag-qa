@@ -87,8 +87,8 @@ def build_retriever():
 
 def answer_question(question, retriever):
     """RAG 问答（生产链路），返回 (回答, 来源列表)"""
-    # 1. 混合检索召回 top-5（评测支撑：Top-5 命中 100%，rerank 5 候选精度无损）
-    recall = retriever.retrieve(question, top_k=5)
+    # 1. 混合检索召回 top-10（实验：10池池内命中95.3%，5池仅86%限制rerank）
+    recall = retriever.retrieve(question, top_k=10)
 
     # 2. rerank 精排 top-3（模型不可用时自动降级返回原顺序）
     from rerank import rerank

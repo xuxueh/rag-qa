@@ -9,9 +9,12 @@ RAG 升级：召回（找得多）→ 重排（排得准）
 """
 import os
 import sys
+import logging
 
 # Windows 控制台中文乱码防护
 sys.stdout.reconfigure(encoding="utf-8")
+
+logger = logging.getLogger("rerank")
 
 MODEL_PATH = r"C:\Users\xujin\ai-learning\data\models\bge-reranker-v2-m3"
 
@@ -29,20 +32,24 @@ def _get_model():
     return _model
 
 
-def rerank(query: str, documents: list[str], top_n: int = 3) -> list[str]:
-    """对候选文档按与 query 的相关性重排，返回 top_n 个文档（降序）。
+def rerank_with_meta(query: str, documents: list[str], top_n: int = 3) -> tuple[list[str], dict]:
+    """对候选文档按与 query 的相关性重排，返回 (top_n 文档, 元数据)。
 
-    - 模型加载失败：打印警告，返回原 documents 顺序（优雅降级）
-    - 成功：按相关性分数降序返回 top_n 个文档
+    元数据含降级状态，供调用方记录（response metadata）：
+    - {"rerank_enabled": True,  "fallback": False}：正常精排
+    - {"rerank_enabled": False, "fallback": True}：模型加载/推理失败，降级返回原顺序
     """
+    meta = {"rerank_enabled": True, "fallback": False}
     if not documents:
-        return documents
+        return documents, meta
 
     try:
         model = _get_model()
     except Exception as e:
-        print(f"⚠️ reranker 模型加载失败（{e}），返回原始顺序")
-        return documents[:top_n]
+        logger.warning("reranker 模型加载失败（%s），降级返回原始顺序", e)
+        print(f"⚠️ reranker 模型加载失败（{e}），降级返回原始顺序")
+        meta = {"rerank_enabled": False, "fallback": True}
+        return documents[:top_n], meta
 
     try:
         # CrossEncoder：对 (query, 文档) 成对打分
@@ -50,10 +57,18 @@ def rerank(query: str, documents: list[str], top_n: int = 3) -> list[str]:
         scores = model.predict(pairs)
         # 按分数降序排序，取 top_n
         ordered = [d for _, d in sorted(zip(scores, documents), key=lambda x: x[0], reverse=True)]
-        return ordered[:top_n]
+        return ordered[:top_n], meta
     except Exception as e:
-        print(f"⚠️ rerank 推理失败（{e}），返回原始顺序")
-        return documents[:top_n]
+        logger.warning("rerank 推理失败（%s），降级返回原始顺序", e)
+        print(f"⚠️ rerank 推理失败（{e}），降级返回原始顺序")
+        meta = {"rerank_enabled": False, "fallback": True}
+        return documents[:top_n], meta
+
+
+def rerank(query: str, documents: list[str], top_n: int = 3) -> list[str]:
+    """兼容版：只返回文档列表（旧调用方/评测脚本使用）"""
+    docs, _ = rerank_with_meta(query, documents, top_n)
+    return docs
 
 
 if __name__ == "__main__":
