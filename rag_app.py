@@ -87,19 +87,18 @@ def build_retriever():
 
 def answer_question(question, retriever):
     """RAG 问答（生产链路），返回 (回答, 来源列表)"""
-    # 1. 混合检索召回 top-10（实验：10池池内命中95.3%，5池仅86%限制rerank）
-    recall = retriever.retrieve(question, top_k=10)
+    # 1. 混合检索召回 top-10（ChunkMeta）
+    recall = retriever.retrieve_meta(question, top_k=10)
 
-    # 2. rerank 精排 top-3（模型不可用时自动降级返回原顺序）
-    from rerank import rerank
-    ranked = rerank(question, recall, top_n=3)
+    # 2. rerank 精排 top-3（对象级，保留 chunk_id；模型不可用自动降级）
+    from rerank import rerank_objects
+    ranked, _ = rerank_objects(question, recall, lambda m: m.text, top_n=3)
 
     # 3. 组装上下文（带来源）
     parts, sources = [], []
-    for t in ranked:
-        fn = retriever.get_citation(t)
-        parts.append(f"[来源：{fn}]\n{t}")
-        sources.append({"text": t, "source": fn})
+    for m in ranked:
+        parts.append(f"[来源：{m.citation()}]\n{m.text}")
+        sources.append({"chunk_id": m.chunk_id, "text": m.text, "source": m.citation()})
     context = "\n\n".join(parts)
 
     # 4. DeepSeek 生成

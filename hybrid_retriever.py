@@ -1,11 +1,14 @@
 """
-hybrid_retriever.py - 混合检索（BM25 + 向量，RRF 融合）
-=========================================================
-RAG 升级 Phase 2：向量管语义，BM25 管精确词（编号/专有名词），RRF 融合两者排序。
+hybrid_retriever.py - 混合检索（BM25 + 向量，RRF 融合）· chunk_id 版
+=====================================================================
+v2 重构（GPT 评审 ③）：用 chunk_id 作为唯一标识，不再用 page_content 当 ID。
+- 每个 chunk 拥有稳定 chunk_id（d<文档>_c<块>），Chroma 以 id 存储
+- 检索内部按 chunk_id 融合（重复文本的两个 chunk 互不覆盖）
+- 生产链路用 retrieve_meta() 拿结构化结果（chunk_id/text/source/citation/page）
 
 - BM25Okapi：关键词检索（jieba 中文分词）
-- Chroma：语义向量检索
-- RRF（Reciprocal Rank Fusion）：score = Σ 1/(k + rank)，k 通常取 60
+- Chroma：语义向量检索（id = chunk_id）
+- RRF：score = Σ 1/(k + rank)
 """
 import sys
 import os
@@ -18,7 +21,6 @@ from rank_bm25 import BM25Okapi
 
 import rag_qa as rq
 
-# jieba 首次加载会打印日志，静音
 jieba.setLogLevel(20)
 
 _CN_NUMS = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9,
@@ -34,13 +36,17 @@ def extract_articles(text: str) -> list[int]:
         num_str = m.group(1)
         if num_str in _CN_NUMS:
             found.append(_CN_NUMS[num_str])
-    # 去重保序
     seen, out = set(), []
     for n in found:
         if n not in seen:
             seen.add(n)
             out.append(n)
     return out
+
+
+def _int_to_cn(n: int) -> str:
+    cn = {1: "一", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六", 7: "七", 8: "八", 9: "九", 10: "十"}
+    return cn.get(n, str(n))
 
 
 def format_citation(filename: str, articles: list[int]) -> str:
@@ -51,116 +57,133 @@ def format_citation(filename: str, articles: list[int]) -> str:
     return f"{filename} · {parts}"
 
 
-def _int_to_cn(n: int) -> str:
-    cn = {1: "一", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六", 7: "七", 8: "八", 9: "九", 10: "十"}
-    return cn.get(n, str(n))
+class ChunkMeta:
+    """chunk 结构化元数据（评审 ③：替代文本作 ID 的隐患）"""
+
+    __slots__ = ("chunk_id", "text", "source", "articles", "page")
+
+    def __init__(self, chunk_id: str, text: str, source: str, articles: list[int], page: str = ""):
+        self.chunk_id = chunk_id
+        self.text = text
+        self.source = source
+        self.articles = articles
+        self.page = page
+
+    def citation(self) -> str:
+        """'文件 · 第X条'（有页码则含页码）"""
+        base = format_citation(self.source, self.articles)
+        if self.page:
+            return f"{base} · 第{self.page}页"
+        return base
+
+    def __repr__(self):
+        return f"<ChunkMeta {self.chunk_id} {self.source}>"
 
 
 class HybridRetriever:
-    """混合检索器：向量检索 + BM25 关键词检索，RRF 融合排序"""
+    """混合检索器（chunk_id 索引）：向量检索 + BM25 关键词，RRF 融合"""
 
-    def __init__(self, db, chunk_texts: list[str], text2src: dict | None = None,
-                 text2articles: dict | None = None):
+    def __init__(self, db, chunks: list[ChunkMeta]):
         self.db = db
-        self.chunk_texts = chunk_texts  # 与 db 中的块一一对应
-        self.text2src = text2src or {}  # 块文本 → 来源文件名（溯源用）
-        self.text2articles = text2articles or {}  # 块文本 → 条款号列表（Citation）
-        # 构建 BM25 索引（jieba 分词）
-        tokenized = [jieba.lcut(t) for t in chunk_texts]
+        self.chunks = chunks  # list[ChunkMeta]，与 Chroma 存储顺序一致（id = chunk_id）
+        self.id2meta = {c.chunk_id: c for c in chunks}
+        # BM25 索引（按 chunks 顺序分词；id 平行映射）
+        tokenized = [jieba.lcut(c.text) for c in chunks]
         self.bm25 = BM25Okapi(tokenized)
 
-    def get_source(self, text: str) -> str:
-        """返回某块文本的来源文件名（溯源）"""
-        return self.text2src.get(text, "未知")
-
-    def get_citation(self, text: str) -> str:
-        """返回完整引用：'01-考勤管理制度.txt · 第三条'（Citation）"""
-        fn = self.text2src.get(text, "未知")
-        articles = self.text2articles.get(text, [])
-        return format_citation(fn, articles)
-
-    def retrieve(self, query: str, top_k: int = 5, rrf_k: int = 60) -> list[str]:
-        """混合检索：返回 top_k 个文档文本（RRF 融合排序）"""
-        # ① 向量检索（多召回一些，保证融合池子够大）
+    # ── 内部：RRF 融合（返回排序后的 chunk_id 列表）──
+    def _rrf_ids(self, query: str, top_k: int, rrf_k: int = 60) -> list[str]:
+        # ① 向量检索（Chroma 存 id=chunk_id，d.id 即稳定标识，重复文本不冲突）
         vec_docs = self.db.similarity_search(query, k=top_k * 2)
-        vec_ranks = {d.page_content: i + 1 for i, d in enumerate(vec_docs)}
+        vec_ranks = {d.id: i + 1 for i, d in enumerate(vec_docs)}
 
-        # ② BM25 检索（对全部块打分）
+        # ② BM25 全库打分（id 按平行顺序映射）
         bm25_scores = self.bm25.get_scores(jieba.lcut(query))
         bm25_order = sorted(range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True)
-        bm25_ranks = {self.chunk_texts[i]: rank + 1 for rank, i in enumerate(bm25_order)}
+        bm25_ranks = {self.chunks[i].chunk_id: rank + 1 for rank, i in enumerate(bm25_order)}
 
-        # ③ RRF 融合
-        all_docs = set(vec_ranks.keys()) | set(bm25_ranks.keys())
-        rrf_scores: dict[str, float] = {}
-        for doc in all_docs:
-            score = 0.0
-            if doc in vec_ranks:
-                score += 1.0 / (rrf_k + vec_ranks[doc])
-            if doc in bm25_ranks:
-                score += 1.0 / (rrf_k + bm25_ranks[doc])
-            rrf_scores[doc] = score
+        # ③ RRF
+        all_ids = set(vec_ranks) | set(bm25_ranks)
+        rrf: dict[str, float] = {}
+        for cid in all_ids:
+            s = 0.0
+            if cid in vec_ranks:
+                s += 1.0 / (rrf_k + vec_ranks[cid])
+            if cid in bm25_ranks:
+                s += 1.0 / (rrf_k + bm25_ranks[cid])
+            rrf[cid] = s
+        ranked = sorted(rrf.items(), key=lambda x: x[1], reverse=True)
+        return [cid for cid, _ in ranked[:top_k]]
 
-        ranked = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
-        return [doc for doc, _ in ranked[:top_k]]
+    def retrieve(self, query: str, top_k: int = 5, rrf_k: int = 60) -> list[str]:
+        """兼容版：返回 top_k 个文档文本（旧调用方/评测脚本）"""
+        ids = self._rrf_ids(query, top_k, rrf_k)
+        return [self.id2meta[cid].text for cid in ids]
+
+    def retrieve_meta(self, query: str, top_k: int = 5, rrf_k: int = 60) -> list[ChunkMeta]:
+        """生产链路：返回 top_k 个 ChunkMeta（chunk_id + 溯源 + citation）"""
+        ids = self._rrf_ids(query, top_k, rrf_k)
+        return [self.id2meta[cid] for cid in ids]
+
+    def get_chunk(self, chunk_id: str) -> ChunkMeta:
+        return self.id2meta.get(chunk_id)
 
 
 def build_hybrid(doc_dir: str, embedding_model_path: str) -> HybridRetriever:
-    """构建知识库 + BM25 索引，返回 HybridRetriever"""
-    # 复用 rag_qa 的加载/切块逻辑
-    from langchain_community.document_loaders import DirectoryLoader, TextLoader
+    """构建知识库（chunk_id 化）→ 返回 HybridRetriever"""
     from langchain_text_splitters import RecursiveCharacterTextSplitter
     from langchain_huggingface import HuggingFaceEmbeddings
     from langchain_chroma import Chroma
-
-    # 多格式加载（txt/md/pdf/docx）
     from smart_loader import load_documents
+    from clean_pipeline import clean_document
+
     documents = load_documents(doc_dir)
     print(f"✓ 加载文档: {len(documents)} 份")
-
-    # 文本清洗（去空白/统一换行/去重；对 PDF 等脏文本有效，对干净文档无影响）
-    from clean_pipeline import clean_document
     for doc in documents:
         doc.page_content = clean_document(doc.page_content)
 
-    # 切块：按中文句子边界递归切（对长文档更鲁棒；评测 47 块与硬切无差异）
     splitter = RecursiveCharacterTextSplitter(
         separators=["\n\n", "\n", "。", "！", "？", "；", "，", " ", ""],
-        chunk_size=200,
-        chunk_overlap=20,
-    )
+        chunk_size=200, chunk_overlap=20)
     chunks = splitter.split_documents(documents)
     print(f"✓ 切块: {len(chunks)} 块")
 
-    embeddings = HuggingFaceEmbeddings(model_name=embedding_model_path)
-    db = Chroma.from_documents(chunks, embeddings)
-    print("✓ 向量库构建完成")
-
-    chunk_texts = [c.page_content for c in chunks]  # 与 db 块顺序一致
-
-    # 构建 文本 → 来源文件名 + 条款号 映射（Citation 溯源用）
-    text2src = {}
-    text2articles = {}
-    for c in chunks:
+    # 生成 chunk_id + 结构化元数据
+    chunk_metas = []
+    chunk_ids = []
+    doc_counter = {}
+    for i, c in enumerate(chunks):
         src = c.metadata.get("source", "")
         fn = src.rsplit("\\", 1)[-1].rsplit("/", 1)[-1]
-        text2src[c.page_content] = fn
-        text2articles[c.page_content] = extract_articles(c.page_content)
+        # doc 序号：按文件名首次出现顺序
+        if fn not in doc_counter:
+            doc_counter[fn] = len(doc_counter) + 1
+        doc_no = doc_counter[fn]
+        chunk_no = sum(1 for m in chunk_metas if m.source == fn) + 1
+        cid = f"d{doc_no:02d}_c{chunk_no:02d}"
+        chunk_ids.append(cid)
+        chunk_metas.append(ChunkMeta(
+            chunk_id=cid,
+            text=c.page_content,
+            source=fn,
+            articles=extract_articles(c.page_content),
+            page=str(c.metadata.get("page", "")),
+        ))
+    print(f"✓ chunk_id 生成: {len(chunk_metas)} 块（{len(doc_counter)} 个文档）")
+
+    # 向量库（以 chunk_id 为 Chroma id——杜绝文本冲突）
+    embeddings = HuggingFaceEmbeddings(model_name=embedding_model_path)
+    db = Chroma.from_documents(chunks, embeddings, ids=chunk_ids)
+    print("✓ 向量库构建完成（id=chunk_id）")
 
     print("✓ BM25 索引构建完成")
-    return HybridRetriever(db, chunk_texts, text2src, text2articles)
+    return HybridRetriever(db, chunk_metas)
 
 
 if __name__ == "__main__":
     retriever = build_hybrid(rq.DOC_DIR, rq.EMBEDDING_MODEL_PATH)
     for q in ["报销金额超过5000元需要谁审批？", "迟到30分钟怎么处理？", "婚假几天？"]:
-        top = retriever.retrieve(q, top_k=3)
+        metas = retriever.retrieve_meta(q, top_k=3)
         print(f"\n问题：{q}")
-        for i, t in enumerate(top):
-            print(f"  {i + 1}. {t[:45]}...")
-
-# ── 集成说明 ────────────────────────────────────────────
-# from hybrid_retriever import build_hybrid
-# retriever = build_hybrid(DOC_DIR, EMBEDDING_MODEL_PATH)
-# texts = retriever.retrieve(question, top_k=3)  # 替代 db.similarity_search
-# 然后可再接 rerank 精排（可选）
+        for m in metas:
+            print(f"  {m.chunk_id} [{m.citation()}] {m.text[:40]}...")

@@ -32,37 +32,58 @@ def _get_model():
     return _model
 
 
-def rerank_with_meta(query: str, documents: list[str], top_n: int = 3) -> tuple[list[str], dict]:
-    """对候选文档按与 query 的相关性重排，返回 (top_n 文档, 元数据)。
-
-    元数据含降级状态，供调用方记录（response metadata）：
-    - {"rerank_enabled": True,  "fallback": False}：正常精排
-    - {"rerank_enabled": False, "fallback": True}：模型加载/推理失败，降级返回原顺序
-    """
-    meta = {"rerank_enabled": True, "fallback": False}
+def _score(query: str, documents: list[str]):
+    """对候选文本打分，返回分数列表；模型不可用时返回 None（触发降级）"""
     if not documents:
-        return documents, meta
-
+        return []
     try:
         model = _get_model()
     except Exception as e:
-        logger.warning("reranker 模型加载失败（%s），降级返回原始顺序", e)
+        logger.warning("reranker 模型加载失败（%s），降级", e)
         print(f"⚠️ reranker 模型加载失败（{e}），降级返回原始顺序")
-        meta = {"rerank_enabled": False, "fallback": True}
-        return documents[:top_n], meta
-
+        return None
     try:
-        # CrossEncoder：对 (query, 文档) 成对打分
         pairs = [[query, doc] for doc in documents]
-        scores = model.predict(pairs)
-        # 按分数降序排序，取 top_n
-        ordered = [d for _, d in sorted(zip(scores, documents), key=lambda x: x[0], reverse=True)]
-        return ordered[:top_n], meta
+        return model.predict(pairs)
     except Exception as e:
-        logger.warning("rerank 推理失败（%s），降级返回原始顺序", e)
+        logger.warning("rerank 推理失败（%s），降级", e)
         print(f"⚠️ rerank 推理失败（{e}），降级返回原始顺序")
-        meta = {"rerank_enabled": False, "fallback": True}
-        return documents[:top_n], meta
+        return None
+
+
+def rerank_with_meta(query: str, documents: list[str], top_n: int = 3) -> tuple[list[str], dict]:
+    """对候选文本按与 query 的相关性重排，返回 (top_n 文档, 元数据)。
+
+    元数据含降级状态：
+    - {"rerank_enabled": True,  "fallback": False}：正常精排
+    - {"rerank_enabled": False, "fallback": True}：模型不可用，降级返回原顺序
+    """
+    if not documents:
+        return documents, {"rerank_enabled": True, "fallback": False}
+
+    scores = _score(query, documents)
+    if scores is None:
+        return documents[:top_n], {"rerank_enabled": False, "fallback": True}
+
+    ordered = [d for _, d in sorted(zip(scores, documents), key=lambda x: x[0], reverse=True)]
+    return ordered[:top_n], {"rerank_enabled": True, "fallback": False}
+
+
+def rerank_objects(query: str, objects: list, text_fn, top_n: int = 3):
+    """对象级重排（评审 ③：id 贯穿 rerank，不丢 chunk_id）。
+
+    - objects: 任意对象列表（如 ChunkMeta）
+    - text_fn: obj -> 用于打分的文本（如 lambda m: m.text）
+    - 返回 (排序后的对象列表, meta)
+    """
+    if not objects:
+        return objects, {"rerank_enabled": True, "fallback": False}
+    texts = [text_fn(o) for o in objects]
+    scores = _score(query, texts)
+    if scores is None:
+        return objects[:top_n], {"rerank_enabled": False, "fallback": True}
+    ordered = [o for _, o in sorted(zip(scores, objects), key=lambda x: x[0], reverse=True)]
+    return ordered[:top_n], {"rerank_enabled": True, "fallback": False}
 
 
 def rerank(query: str, documents: list[str], top_n: int = 3) -> list[str]:

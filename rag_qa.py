@@ -73,18 +73,19 @@ def build_knowledge_base(doc_dir, embedding_model_path):
 
 
 def ask(question, retriever, llm, k=3):
-    """RAG 问答：混合检索（召回 top-10）→ rerank 精排 → 拼接 prompt → 大模型生成"""
-    # 1. 混合检索召回 top-10（实验数据：5池池内命中86%，10池95.3%，rerank 不能找回没召回的）
-    recall = retriever.retrieve(question, top_k=10)
+    """RAG 问答：混合检索（top-10）→ rerank 精排 → 拼接 prompt → 大模型生成
+    chunk_id 版：ChunkMeta 贯穿全程，不丢溯源"""
+    # 1. 混合检索召回 top-10（ChunkMeta，带 chunk_id）
+    recall = retriever.retrieve_meta(question, top_k=10)
 
-    # 2. rerank 精排，取 top-k（再排得准）
-    from rerank import rerank
-    ranked = rerank(question, recall, top_n=k)
+    # 2. rerank 精排 top-k（对象级重排，chunk_id 保留）
+    from rerank import rerank_objects
+    ranked, _ = rerank_objects(question, recall, lambda m: m.text, top_n=k)
 
-    # 3. 组装上下文（用 retriever 溯源：块文本 → 来源文件名）
+    # 3. 组装上下文（ChunkMeta.citation()：文件 · 第X条）
     parts = []
-    for t in ranked:
-        parts.append(f"[来源：{retriever.get_citation(t)}]\n{t}")
+    for m in ranked:
+        parts.append(f"[来源：{m.citation()}]\n{m.text}")
     context = "\n\n".join(parts)
 
     # 2. 拼接 prompt（资料 + 问题）

@@ -82,14 +82,14 @@ def ask(q: Question):
     retriever = get_retriever()
     start = time.time()
 
-    recall = retriever.retrieve(q.question, top_k=10)  # 10池: 池内命中95.3%(5池仅86%)
-    ranked = rerank(q.question, recall, top_n=3)
+    recall = retriever.retrieve_meta(q.question, top_k=10)  # ChunkMeta（10池: 池内命中95.3%）
+    from rerank import rerank_objects
+    ranked, _ = rerank_objects(q.question, recall, lambda m: m.text, top_n=3)
 
     parts, sources = [], []
-    for t in ranked:
-        fn = retriever.get_citation(t)
-        parts.append(f"[来源：{fn}]\n{t}")
-        sources.append({"text": t, "source": fn})
+    for m in ranked:
+        parts.append(f"[来源：{m.citation()}]\n{m.text}")
+        sources.append({"chunk_id": m.chunk_id, "text": m.text, "source": m.citation()})
     context = "\n\n".join(parts)
 
     llm = ChatOpenAI(model="deepseek-chat", api_key=rq.DEEPSEEK_API_KEY,
