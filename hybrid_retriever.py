@@ -70,10 +70,14 @@ class ChunkMeta:
         self.page = page
 
     def citation(self) -> str:
-        """'文件 · 第X条'（有页码则含页码）"""
+        """'文件 · 第X条'（PDF 有页码时含页码，页码转 1-based）"""
         base = format_citation(self.source, self.articles)
-        if self.page:
-            return f"{base} · 第{self.page}页"
+        if self.page != "":
+            try:
+                page_display = int(self.page) + 1  # PyPDFLoader 的 page 是 0-based
+            except (ValueError, TypeError):
+                page_display = self.page
+            return f"{base} · 第{page_display}页"
         return base
 
     def __repr__(self):
