@@ -44,7 +44,11 @@ EMBEDDING_MODEL_PATH = os.environ.get("EMBEDDING_MODEL", "")  # 从 .env 读 gte
 
 
 def build_knowledge_base(doc_dir, embedding_model_path):
-    """构建向量知识库：加载目录全部文档 → 切块 → 嵌入 → 存储"""
+    """[DEPRECATED 评审⑤] 旧构建入口——仅返回纯向量库，无 BM25/Citation
+
+    生产链路与评测请统一用 `hybrid_retriever.build_hybrid()`（含 chunk_id + BM25 + 溯源）。
+    本函数保留仅供早期脚本兼容，勿在新代码中使用。
+    """
     # 1. 多格式加载目录下所有文档（txt/md/pdf/docx）
     from smart_loader import load_documents
     documents = load_documents(doc_dir)
