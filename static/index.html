@@ -34,12 +34,40 @@
         #send:hover { background: #1d4ed8; }
         #send:disabled { background: #93c5fd; cursor: not-allowed; }
         .loading { color: #2563eb; font-size: 14px; padding: 12px; }
+        /* 知识库管理面板 */
+        .kb-panel { background: #fff; border-radius: 10px; padding: 12px 16px; margin-bottom: 16px;
+                    box-shadow: 0 1px 6px rgba(0,0,0,.05); font-size: 14px; }
+        .kb-panel summary { cursor: pointer; color: #374151; font-weight: bold; }
+        .kb-body { margin-top: 12px; }
+        .kb-upload { display: flex; gap: 8px; margin-bottom: 8px; }
+        .kb-upload input[type=file] { flex: 1; font-size: 13px; }
+        .kb-btn { padding: 6px 14px; background: #2563eb; color: #fff; border: none;
+                  border-radius: 6px; cursor: pointer; font-size: 13px; }
+        .kb-btn:hover { background: #1d4ed8; }
+        .kb-status { font-size: 13px; color: #2563eb; margin-bottom: 8px; min-height: 18px; }
+        .kb-list { list-style: none; max-height: 160px; overflow-y: auto; }
+        .kb-list li { display: flex; justify-content: space-between; align-items: center;
+                      padding: 5px 0; border-bottom: 1px solid #f3f4f6; font-size: 13px; color: #4b5563; }
+        .kb-del { color: #dc2626; cursor: pointer; border: none; background: none; font-size: 13px; }
+        .kb-del:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>📚 智能知识库问答</h1>
         <p class="subtitle">混合检索 + Rerank + DeepSeek · 答案有据可查</p>
+
+        <details class="kb-panel">
+            <summary>📁 知识库管理（上传 / 删除文档）</summary>
+            <div class="kb-body">
+                <div class="kb-upload">
+                    <input type="file" id="fileInput" accept=".txt,.md,.pdf,.docx">
+                    <button class="kb-btn" onclick="uploadDoc()">上传</button>
+                </div>
+                <div id="kbStatus" class="kb-status"></div>
+                <ul id="kbList" class="kb-list"></ul>
+            </div>
+        </details>
 
         <div class="examples">
             <button class="example-btn" onclick="ask('报销金额超过5000元需要谁审批？')">报销审批</button>
@@ -57,6 +85,67 @@
     </div>
 
     <script>
+        // ─── 知识库管理 ───
+        async function loadDocs() {
+            try {
+                const resp = await fetch('/documents');
+                const data = await resp.json();
+                const list = document.getElementById('kbList');
+                list.innerHTML = '';
+                data.documents.forEach(name => {
+                    const li = document.createElement('li');
+                    li.innerHTML = '<span>' + escapeHtml(name) + '</span>' +
+                        '<button class="kb-del" onclick="deleteDoc(\'' + name.replace(/'/g, "\\'") + '\')">删除</button>';
+                    list.appendChild(li);
+                });
+                document.getElementById('kbStatus').textContent = '共 ' + data.count + ' 份文档';
+            } catch (e) {
+                document.getElementById('kbStatus').textContent = '加载失败：' + e.message;
+            }
+        }
+
+        async function uploadDoc() {
+            const input = document.getElementById('fileInput');
+            const status = document.getElementById('kbStatus');
+            if (!input.files.length) { status.textContent = '请先选择文件'; return; }
+            const fd = new FormData();
+            fd.append('file', input.files[0]);
+            status.textContent = '上传中（会触发检索器重建，约 1-2 分钟）...';
+            try {
+                const resp = await fetch('/documents/upload', { method: 'POST', body: fd });
+                const data = await resp.json();
+                if (resp.ok) {
+                    status.textContent = '✅ 已上传：' + data.uploaded + '（检索器已重建）';
+                    input.value = '';
+                    loadDocs();
+                } else {
+                    status.textContent = '❌ 上传失败：' + (data.detail || JSON.stringify(data));
+                }
+            } catch (e) {
+                status.textContent = '❌ 上传失败：' + e.message;
+            }
+        }
+
+        async function deleteDoc(name) {
+            const status = document.getElementById('kbStatus');
+            if (!confirm('确定删除 ' + name + ' ？（会触发检索器重建）')) return;
+            status.textContent = '删除中（重建检索器约 1-2 分钟）...';
+            try {
+                const resp = await fetch('/documents/' + encodeURIComponent(name), { method: 'DELETE' });
+                const data = await resp.json();
+                if (resp.ok) {
+                    status.textContent = '✅ 已删除：' + data.deleted;
+                    loadDocs();
+                } else {
+                    status.textContent = '❌ 删除失败：' + (data.detail || JSON.stringify(data));
+                }
+            } catch (e) {
+                status.textContent = '❌ 删除失败：' + e.message;
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', loadDocs);
+
         function addMsg(role, html) {
             const chat = document.getElementById('chat');
             const div = document.createElement('div');
