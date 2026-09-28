@@ -130,9 +130,17 @@ rag-qa/
 
 ## 🔜 待优化（诚实清单）
 
-- [ ] **chunk-level 评测**：gold_chunk_id（当前 source 文件级命中可能假阳性）
-- [ ] 无答案检测指标（正确回答率 + 正确拒答率）
-- [ ] PDF 页码级 Citation（文件 + 页码 + 章节 + chunk_id）
-- [ ] 检索数据结构重构（chunk_id / metadata，替代文本作 ID）
-- [ ] Ragas 深度指标（Faithfulness / Context Precision）
-- [ ] Docker 云端部署 + 网页上传界面
+### ✅ 本轮已完成
+- [x] **chunk-level 评测** → `eval_gold_article.py`（条款级 gold 自动标注 41/43，量化假阳性 15.5pp）
+- [x] **无答案检测指标** → `eval_abstention.py`（TP/FP/FN/TN，拒答率 100%、编造 0）
+- [x] **PDF 页码级 Citation** → `ChunkMeta.citation()`：文件 · 条款 · 页码（1-based）
+- [x] **检索数据结构重构** → ChunkMeta + chunk_id（Chroma id = chunk_id，杜绝文本冲突）
+- [x] 端到端评测 → `eval_e2e.py`（完整链路明细 + 耗时 + Token）
+- [x] 召回池实验 → `eval_recall_pool.py`（5/10/20 池天花板对比）
+
+### ⏳ 待做
+- [ ] Ragas 深度指标（Faithfulness / Context Precision）——当前自建 LLM-judge 已覆盖核心
+- [ ] Docker 实际构建运行（Dockerfile 已就绪，未验证镜像可跑）
+- [ ] 网页上传界面（文档管理 API 已支持，HTML 界面待加按钮）
+- [ ] 6 条 FN 漏答分析（无答案检测中"有答案却拒答"的案例优化）
+- [ ] RRF 候选集实验（当前 BM25 全库参与融合，对比"双路各取 Top-K 再融合"）
