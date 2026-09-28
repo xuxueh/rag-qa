@@ -1,8 +1,8 @@
 {
   "matrix": {
-    "tp": 42,
+    "tp": 39,
     "fp": 1,
-    "fn": 1,
+    "fn": 4,
     "tn": 6
   },
   "details": [
@@ -10,37 +10,37 @@
       "q": "公司上班时间是几点到几点？午休时间呢？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据：01-考勤管理制度.txt 第一条。\n\n结论：公司上班时间为上午 9:00"
+      "answer_head": "依据：来自《01-考勤管理制度.txt》第一条。\n\n结论：公司上班时间为上午 9"
     },
     {
       "q": "全勤奖标准是每月多少钱？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据：01-考勤管理制度.txt 第四条。\n\n结论：全勤奖标准为每月 300 元"
+      "answer_head": "依据：01-考勤管理制度.txt · 第四条。\n\n结论：全勤奖标准为每月 300"
     },
     {
       "q": "婚假有几天？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据：来自《03-请假管理制度.txt》第五条。\n\n结论：婚假为 15 天。\n\n"
+      "answer_head": "依据：资料来自《03-请假管理制度.txt》第五条。\n\n结论：婚假为 15 天。"
     },
     {
       "q": "女性员工产假多少天？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据：来自《03-请假管理制度.txt》第六条。\n\n结论：女性员工享受 158 "
+      "answer_head": "依据：03-请假管理制度.txt · 第六条。\n\n结论：女性员工享受 158 天"
     },
     {
       "q": "丧假有几天？适用什么人？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据：来自《03-请假管理制度.txt》第七条。\n\n结论：丧假为 3 天，适用于"
+      "answer_head": "依据：03-请假管理制度.txt · 第七条。\n\n结论：丧假为 3 天，适用于直"
     },
     {
       "q": "通讯补贴每月多少钱？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据：05-薪酬福利制度.txt 第七条。\n\n结论：通讯补贴每月 100 元。\n"
+      "answer_head": "依据：05-薪酬福利制度.txt 第七条。\n\n结论：通讯补贴每月 100 元，适"
     },
     {
       "q": "员工多久有一次免费体检？",
@@ -52,7 +52,7 @@
       "q": "绩效考核等级分哪几档？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据：  \n1. 来自《05-薪酬福利制度.txt》第三条：考核等级分为 S、A"
+      "answer_head": "依据：  \n1. 《05-薪酬福利制度.txt》第三条：考核等级分为 S、A、B"
     },
     {
       "q": "旷工一天扣多少工资？",
@@ -70,7 +70,7 @@
       "q": "密码需要多久更换一次？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据：来自资料中的《07-信息安全管理制度.txt》第三条。\n\n结论：密码需定期"
+      "answer_head": "依据：07-信息安全管理制度.txt · 第三条。\n\n结论：密码需定期更换，每 "
     },
     {
       "q": "竞业限制期限是多久？",
@@ -88,7 +88,7 @@
       "q": "出差坐高铁有什么规定？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据：\n\n1. **《06-差旅管理制度.txt》第二条**：出差交通标准规定，"
+      "answer_head": "依据：\n\n1. **《06-差旅管理制度.txt》第二条**：规定“高铁动车可乘"
     },
     {
       "q": "U盘等移动存储设备使用前要做什么？",
@@ -100,43 +100,43 @@
       "q": "想回老家办婚礼，需要申请什么假？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据：  \n1. 《03-请假管理制度.txt》第五条：婚假为 15 天，需在领"
+      "answer_head": "依据资料《03-请假管理制度.txt》第五条、第六条、第七条、第一条、第二条、第"
     },
     {
       "q": "每个月几号能领到工资？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据：05-薪酬福利制度.txt 第一条。  \n结论：每月 15 日发放上月工资"
+      "answer_head": "依据：05-薪酬福利制度.txt · 第一条。\n\n结论：每月 15 日发放上月工"
     },
     {
       "q": "上班时间刷视频看剧会被管吗？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "**依据：**\n\n根据资料《12-员工行为规范.txt》第二条：工作时间应专注工"
+      "answer_head": "依据：  \n1. 《12-员工行为规范.txt》第二条：工作时间应专注工作，不得"
     },
     {
       "q": "客户请吃饭的费用公司能报销吗？",
       "has_answer": true,
-      "refused": false,
-      "answer_head": "**依据：**\n\n1. **《02-费用报销制度.txt》第一条**：员工因公产"
+      "refused": true,
+      "answer_head": "**依据说明：**\n\n资料中与“客户请吃饭的费用”相关的条款有：\n\n1. **《"
     },
     {
       "q": "生病了想请假休息，工资怎么算？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据：  \n1. 《03-请假管理制度.txt》第四条：病假需提供医院出具的病假"
+      "answer_head": "依据资料中与病假工资相关的条款，逐条核对如下：\n\n1. **《03-请假管理制度"
     },
     {
       "q": "能在公司电脑上装自己下载的软件吗？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据：07-信息安全管理制度.txt 第五条。\n\n结论：不能。\n\n第五条明确规定"
+      "answer_head": "依据：  \n1. 《07-信息安全管理制度.txt》第五条：员工电脑需安装公司统"
     },
     {
       "q": "想申请加班费，需要先做什么？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据：资料中与“申请加班费”相关的条款为《04-加班与调休制度.txt》第一条、"
+      "answer_head": "依据资料《04-加班与调休制度.txt》第一条、第二条、第五条、第八条：\n\n1."
     },
     {
       "q": "年假可以怎么休？当年没用完怎么办？",
@@ -154,7 +154,7 @@
       "q": "报销需要满足哪些条件？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据资料《02-费用报销制度.txt》第一条、第二条、第三条、第四条、第五条、第"
+      "answer_head": "**依据说明：**\n\n本问题涉及“报销需要满足哪些条件”，资料中与报销条件相关的"
     },
     {
       "q": "旷工会有哪些后果？",
@@ -166,43 +166,43 @@
       "q": "离职要办理哪些手续？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据资料中《09-招聘与离职管理制度》第六条，离职流程为：提交辞职申请 → 部门"
+      "answer_head": "依据资料《09-招聘与离职管理制度.txt》第六条，离职流程为：提交辞职申请 →"
     },
     {
       "q": "请假类型有哪几种？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据：资料来自《03-请假管理制度.txt》第一条。\n\n结论：公司员工请假类型共"
+      "answer_head": "依据：03-请假管理制度.txt · 第一条。\n\n结论：公司员工请假类型包括年假"
     },
     {
       "q": "信息安全管理有哪些要求？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据资料《07-信息安全管理制度.txt》，与“信息安全管理有哪些要求”相关的条"
+      "answer_head": "依据资料《07-信息安全管理制度.txt》第一条、第二条、第五条、第六条、第七条"
     },
     {
       "q": "请假怎么弄？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据资料，与“请假怎么弄”相关的条款如下：\n\n1. **03-请假管理制度.tx"
+      "answer_head": "根据资料，关于“请假怎么弄”，涉及以下条款：\n\n**依据：**\n\n1. **03"
     },
     {
       "q": "加班了怎么办？",
       "has_answer": true,
-      "refused": false,
-      "answer_head": "**依据：**\n\n1. **《04-加班与调休制度.txt》第一条**：因工作需"
+      "refused": true,
+      "answer_head": "**依据说明：**\n\n根据资料，与“加班了怎么办”相关的条款如下：\n\n**1. "
     },
     {
       "q": "公司有什么福利？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据：05-薪酬福利制度.txt · 第五条、第六条。\n\n结论：公司福利包括：\n"
+      "answer_head": "依据：05-薪酬福利制度.txt 第五条、第六条。\n\n结论：公司福利包括：\n\n1"
     },
     {
       "q": "出差要注意什么？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据资料，出差需要注意的事项如下：\n\n**1. 出差前须提前申请并审批**\n依据"
+      "answer_head": "依据资料，出差相关要求分散在《06-差旅管理制度.txt》和《01-考勤管理制度"
     },
     {
       "q": "报销怎么走流程？",
@@ -213,8 +213,8 @@
     {
       "q": "公司电脑出问题了找谁？",
       "has_answer": true,
-      "refused": false,
-      "answer_head": "依据资料中与电脑问题相关的条款逐条核对：\n\n1. **《10-办公用品与固定资产"
+      "refused": true,
+      "answer_head": "**依据说明：**\n\n资料中与“公司电脑出问题”直接相关的条款有：\n\n1. **"
     },
     {
       "q": "考勤记录的真实性有什么要求？",
@@ -226,37 +226,37 @@
       "q": "公司食堂中午提供什么菜？",
       "has_answer": false,
       "refused": true,
-      "answer_head": "依据：我逐条核对了资料中《02-费用报销制度.txt》第一条、第二条，《12-员"
+      "answer_head": "依据：资料中未包含任何关于“公司食堂”或“中午提供什么菜”的信息。  \n结论：不"
     },
     {
       "q": "公司附近停车费多少钱一小时？",
       "has_answer": false,
       "refused": true,
-      "answer_head": "依据：我逐条核对了资料中的全部文件与条款，包括《06-差旅管理制度》第三条、第四"
+      "answer_head": "依据：我逐条核对了资料中的全部条款，包括《06-差旅管理制度.txt》第三条、第"
     },
     {
       "q": "端午节公司发什么礼品？",
       "has_answer": false,
       "refused": false,
-      "answer_head": "依据：资料中 [来源：05-薪酬福利制度.txt · 第六条] 规定：“春节、端"
+      "answer_head": "依据：资料中 [来源：05-薪酬福利制度.txt · 第六条] 提到，“春节、端"
     },
     {
       "q": "员工工号编号规则是什么？",
       "has_answer": false,
       "refused": true,
-      "answer_head": "依据：我逐条核对了资料中所有条款，包括《04-加班与调休制度.txt》第五条、第"
+      "answer_head": "依据：我逐条核对了资料中的以下条款——04-加班与调休制度.txt 第五条、第六"
     },
     {
       "q": "公司的投资人有哪些？",
       "has_answer": false,
       "refused": true,
-      "answer_head": "依据：我逐条核对了资料中所有文件（07-信息安全管理制度、11-保密与知识产权管"
+      "answer_head": "依据：我逐条核对了资料中的三份文件——07-信息安全管理制度（第一条、第二条）、"
     },
     {
       "q": "怎么申请公司宿舍？",
       "has_answer": false,
       "refused": true,
-      "answer_head": "根据资料，**无法回答“怎么申请公司宿舍”**。\n\n逐条核对如下：\n\n- **0"
+      "answer_head": "根据资料，**无法回答“怎么申请公司宿舍”**。\n\n逐条核对如下：\n\n1. **"
     },
     {
       "q": "年会一般在什么时候举办？",
@@ -268,13 +268,13 @@
       "q": "一线城市住宿标准在报销和差旅制度里分别是多少？一致吗？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据：\n\n1. 《02-费用报销制度.txt》第五条：差旅费报销标准：一线城市（"
+      "answer_head": "依据：\n\n1. 《02-费用报销制度.txt》第五条：一线城市（北京、上海、广州"
     },
     {
       "q": "出差时的餐饮补贴和平时上班的餐饮补贴有什么区别？",
       "has_answer": true,
       "refused": true,
-      "answer_head": "依据：\n\n1. **06-差旅管理制度.txt · 第四条**：出差餐饮补贴每天"
+      "answer_head": "依据资料：\n\n1. **06-差旅管理制度.txt · 第四条**：出差餐饮补贴"
     },
     {
       "q": "新员工入职需要签署哪些文件？",
@@ -286,7 +286,7 @@
       "q": "调休会影响全勤奖吗？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据：资料中《04-加班与调休制度.txt》第六条。\n\n结论：调休不会影响全勤奖"
+      "answer_head": "依据：来自资料《04-加班与调休制度.txt》第六条。\n\n结论：调休不会影响全勤"
     },
     {
       "q": "哪些差旅费用不需要发票？",
@@ -298,13 +298,13 @@
       "q": "离职交接要归还什么？离职后保密义务多久？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据资料回答如下：\n\n**一、离职交接要归还什么？**\n\n1. 依据《07-信息"
+      "answer_head": "依据资料：\n\n1. **《07-信息安全管理制度》第二条**：员工离职时需归还所"
     },
     {
       "q": "什么情况下会丢掉全勤奖？",
       "has_answer": true,
       "refused": false,
-      "answer_head": "依据资料《01-考勤管理制度.txt》第四条和《04-加班与调休制度.txt》第"
+      "answer_head": "依据资料：\n\n1. **01-考勤管理制度.txt · 第四条**  \n   原"
     }
   ]
 }
