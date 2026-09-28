@@ -1,0 +1,54 @@
+{
+  "results": [
+    {
+      "question": "报销金额超过5000元需要谁审批？",
+      "retrieve_ms": 41.8,
+      "rerank_ms": 1488.7,
+      "generate_ms": 789.0,
+      "total_ms": 2319.5,
+      "prompt_tokens": 369,
+      "completion_tokens": 40,
+      "answer_head": "依据：[来源：02-费用报销制度.txt] 第三条：“单笔金额超过 5000 元"
+    },
+    {
+      "question": "婚假有几天？",
+      "retrieve_ms": 51.3,
+      "rerank_ms": 5988.3,
+      "generate_ms": 904.9,
+      "total_ms": 6944.5,
+      "prompt_tokens": 421,
+      "completion_tokens": 55,
+      "answer_head": "依据：资料《03-请假管理制度.txt》第五条明确规定：“婚假为 15 天，需在"
+    },
+    {
+      "question": "迟到超过30分钟怎么处理？",
+      "retrieve_ms": 108.9,
+      "rerank_ms": 6715.4,
+      "generate_ms": 616.3,
+      "total_ms": 7440.5,
+      "prompt_tokens": 364,
+      "completion_tokens": 38,
+      "answer_head": "依据来源：《01-考勤管理制度.txt》第三条。\n\n结论：迟到超过30分钟不足2"
+    },
+    {
+      "question": "绩效考核S档对应的绩效系数是多少？",
+      "retrieve_ms": 112.1,
+      "rerank_ms": 5189.8,
+      "generate_ms": 942.9,
+      "total_ms": 6244.8,
+      "prompt_tokens": 401,
+      "completion_tokens": 84,
+      "answer_head": "依据：资料[来源：08-绩效考核管理制度.txt]第五条明确写明“S 档系数 1"
+    },
+    {
+      "question": "员工辞职需要提前多少天？",
+      "retrieve_ms": 96.3,
+      "rerank_ms": 5226.6,
+      "generate_ms": 934.1,
+      "total_ms": 6257.1,
+      "prompt_tokens": 379,
+      "completion_tokens": 66,
+      "answer_head": "依据：资料《09-招聘与离职管理制度.txt》第五条明确规定：“员工辞职需提前 "
+    }
+  ]
+}
