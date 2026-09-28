@@ -94,12 +94,14 @@ def ask(q: Question):
 
     llm = ChatOpenAI(model="deepseek-chat", api_key=rq.DEEPSEEK_API_KEY,
                      base_url="https://api.deepseek.com", temperature=0)
-    prompt = f"""根据以下资料回答问题。如果资料里没有答案，就说不知道，不要瞎编。
+    prompt = f"""根据以下资料回答问题。
 
 回答要求：
 1. 先说明依据：指出答案来自资料的哪份文件、第几条
 2. 再给出结论
 3. 引用内容不得超出资料范围
+4. 逐条核对资料中的每个条款：只要有任何一条与问题相关，就必须用它回答，不要遗漏
+5. 只有当资料中确实找不到任何相关信息时，才回答"不知道"，不要瞎编
 
 资料：
 {context}

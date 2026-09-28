@@ -31,12 +31,17 @@ llm = rq.ChatOpenAI(model="deepseek-chat", api_key=rq.DEEPSEEK_API_KEY,
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "eval_set_v2.json"), encoding="utf-8") as f:
     eval_set = json.load(f)
 
-REFUSE_MARKERS = ("不知道", "没有相关信息", "无法回答", "资料中没有", "未提及")
+REFUSE_MARKERS = ("不知道", "没有相关信息", "无法回答", "未查询到", "未找到", "未提及")
 
 
 def is_refusal(answer: str) -> bool:
-    """判断回答是否为拒答（说不知道）"""
-    return any(m in answer for m in REFUSE_MARKERS)
+    """判断回答是否为拒答——只看结论句（修正判定误伤：正文提到"未提及"不算拒答）"""
+    # 取"结论"之后的部分判定；没有"结论"则看回答末尾
+    if "结论" in answer:
+        tail = answer.split("结论")[-1]
+    else:
+        tail = answer[-60:]
+    return any(m in tail for m in REFUSE_MARKERS)
 
 
 # 跑全部 50 条（含 7 无答案）
