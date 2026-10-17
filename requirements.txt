@@ -1,3 +1,7 @@
+# 运行时依赖（Python 3.10+，本项目在 3.13.2 上验证）
+# 安装：pip install -r requirements.txt
+
+# ── RAG 链路 ──
 langchain
 langchain-community
 langchain-text-splitters
@@ -5,7 +9,19 @@ langchain-huggingface
 langchain-chroma
 langchain-openai
 chromadb
-sentence-transformers
-modelscope
-jieba
-rank_bm25
+sentence-transformers        # 本地 GTE 向量模型 + bge-reranker 精排
+
+# ── 检索 ──
+jieba                        # 中文分词（BM25 用）
+rank-bm25
+
+# ── 文档解析 ──
+pypdf                        # PDF（带页码）
+python-docx                  # Word
+
+# ── 服务 ──
+fastapi
+uvicorn
+
+# ── 模型下载（可选，仅首次准备模型时用） ──
+# modelscope

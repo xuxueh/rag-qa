@@ -1,99 +1,35 @@
 """
-企业知识库问答系统 (RAG)
-========================
-基于检索增强生成 (RAG) 的智能问答系统：
-文档加载 → 文本切块 → 向量化 → 语义检索 → 大模型生成
+企业知识库问答系统 (RAG) — 生产链路公共函数 + 命令行入口
+=========================================================
+链路（一条问题从进来到出去）：
+  问题 → 混合检索(向量+BM25, RRF) 召回 top-10 → rerank 精排 top-3
+       → 拼 prompt（带 [来源：文件 · 第X条]）→ DeepSeek 生成 → 答案 + 引用
 
-技术栈: LangChain, Chroma, GTE中文嵌入, DeepSeek API
+本模块只负责「链路编排」和「prompt / 上下文组装」，
+检索细节在 hybrid_retriever.py，重排在 rerank.py，配置在 config.py。
 """
+from __future__ import annotations
 
-import os
+import logging
 import sys
 
-# Windows 控制台默认 GBK 编码，print ✓ 等字符会报错；强制 UTF-8（Day 2 学过的坑）
-sys.stdout.reconfigure(encoding="utf-8")
+# Windows 控制台默认 GBK，print ✓ / emoji 会报错；强制 UTF-8
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:  # 被重定向到管道/文件时可能不支持
+    pass
 
+import config
 
-def load_env(path):
-    """加载 .env 文件到环境变量（不依赖 python-dotenv）"""
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    os.environ[k.strip()] = v.strip()
-    except FileNotFoundError:
-        pass
+log = logging.getLogger(__name__)
 
+# 兼容旧调用方（历史评测脚本用 rag_qa.DOC_DIR / rag_qa.EMBEDDING_MODEL_PATH）
+DOC_DIR = config.DOC_DIR
+EMBEDDING_MODEL_PATH = config.EMBEDDING_MODEL_PATH
+DEEPSEEK_API_KEY = config.DEEPSEEK_API_KEY
 
-load_env(os.path.join(os.path.dirname(__file__), ".env"))
-
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_chroma import Chroma
-from langchain_openai import ChatOpenAI
-# ⚠️ Windows DLL 加载顺序：TextLoader 必须在这三个之后导入
-from langchain_community.document_loaders import DirectoryLoader, TextLoader
-from langchain_text_splitters import CharacterTextSplitter
-
-# ═══════════════ 配置区（从 .env 读取） ═══════════════
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "sk-你的key")
-DOC_DIR = r"C:\Users\xujin\ai-learning\项目\rag-qa\知识库"   # 知识库文档目录（12 份公司制度）
-EMBEDDING_MODEL_PATH = os.environ.get("EMBEDDING_MODEL", "")  # 从 .env 读 gte-small 路径
-# ══════════════════════════════════════════════════════
-
-
-def build_knowledge_base(doc_dir, embedding_model_path):
-    """[DEPRECATED 评审⑤] 旧构建入口——仅返回纯向量库，无 BM25/Citation
-
-    生产链路与评测请统一用 `hybrid_retriever.build_hybrid()`（含 chunk_id + BM25 + 溯源）。
-    本函数保留仅供早期脚本兼容，勿在新代码中使用。
-    """
-    # 1. 多格式加载目录下所有文档（txt/md/pdf/docx）
-    from smart_loader import load_documents
-    documents = load_documents(doc_dir)
-    print(f"✓ 加载文档: {len(documents)} 份")
-
-    # 文本清洗（对干净文档无影响，对未来 PDF/脏文本有效）
-    from clean_pipeline import clean_document
-    for doc in documents:
-        doc.page_content = clean_document(doc.page_content)
-
-    # 2. 切块（200字/块，重叠20字；按中文句子边界递归切）
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-    splitter = RecursiveCharacterTextSplitter(
-        separators=["\n\n", "\n", "。", "！", "？", "；", "，", " ", ""],
-        chunk_size=200,
-        chunk_overlap=20,
-    )
-    chunks = splitter.split_documents(documents)
-    print(f"✓ 切块: {len(chunks)} 块")
-
-    # 3. 嵌入 + 4. 存储
-    embeddings = HuggingFaceEmbeddings(model_name=embedding_model_path)
-    db = Chroma.from_documents(chunks, embeddings)
-    print("✓ 向量知识库构建完成")
-    return db, embeddings
-
-
-def ask(question, retriever, llm, k=3):
-    """RAG 问答：混合检索（top-10）→ rerank 精排 → 拼接 prompt → 大模型生成
-    chunk_id 版：ChunkMeta 贯穿全程，不丢溯源"""
-    # 1. 混合检索召回 top-10（ChunkMeta，带 chunk_id）
-    recall = retriever.retrieve_meta(question, top_k=10)
-
-    # 2. rerank 精排 top-k（对象级重排，chunk_id 保留）
-    from rerank import rerank_objects
-    ranked, _ = rerank_objects(question, recall, lambda m: m.text, top_n=k)
-
-    # 3. 组装上下文（ChunkMeta.citation()：文件 · 第X条）
-    parts = []
-    for m in ranked:
-        parts.append(f"[来源：{m.citation()}]\n{m.text}")
-    context = "\n\n".join(parts)
-
-    # 2. 拼接 prompt（资料 + 问题）
-    prompt = f"""根据以下资料回答问题。
+# 防幻觉 prompt：先给依据、再给结论、找不到就说不知道
+PROMPT_TEMPLATE = """根据以下资料回答问题。
 
 回答要求：
 1. 先说明依据：指出答案来自资料的哪份文件、第几条
@@ -109,36 +45,162 @@ def ask(question, retriever, llm, k=3):
 
 回答："""
 
-    # 3. 大模型生成
+
+def build_llm():
+    """构造大模型客户端（密钥来自环境变量，缺失直接报错说明怎么修）"""
+    from langchain_openai import ChatOpenAI
+
+    return ChatOpenAI(
+        model=config.DEEPSEEK_MODEL,
+        api_key=config.require_api_key(),
+        base_url=config.DEEPSEEK_BASE_URL,
+        temperature=config.LLM_TEMPERATURE,
+    )
+
+
+def format_context(metas) -> tuple[str, list[dict]]:
+    """把检索结果（ChunkMeta 列表）拼成 prompt 上下文 + 结构化 sources"""
+    parts, sources = [], []
+    for m in metas:
+        parts.append(f"[来源：{m.citation()}]\n{m.text}")
+        sources.append({"chunk_id": m.chunk_id, "text": m.text, "source": m.citation()})
+    return "\n\n".join(parts), sources
+
+
+def build_prompt(context: str, question: str) -> str:
+    return PROMPT_TEMPLATE.format(context=context, question=question)
+
+
+def retrieve_and_rerank(retriever, question: str, recall_k: int | None = None,
+                        top_n: int | None = None):
+    """召回 → 精排（生产链路第 2、3 步）。返回 (ranked_metas, recall_metas, elapsed_ms)"""
+    import time
+
+    from rerank import rerank_objects
+
+    recall_k = recall_k or config.RECALL_TOP_K
+    top_n = top_n or config.RERANK_TOP_N
+    t0 = time.perf_counter()
+    recall = retriever.retrieve_meta(question, top_k=recall_k)
+    t1 = time.perf_counter()
+    ranked, meta = rerank_objects(question, recall, lambda m: m.text, top_n=top_n)
+    t2 = time.perf_counter()
+    log.debug(
+        "检索完成: recall=%d rerank_top=%d rerank_fallback=%s recall耗时=%.0fms rerank耗时=%.0fms",
+        len(recall), len(ranked), meta.get("fallback", False), (t1 - t0) * 1000, (t2 - t1) * 1000,
+    )
+    return ranked, recall, round((t2 - t0) * 1000, 1)
+
+
+def answer(question: str, retriever=None, llm=None) -> dict:
+    """完整问答：检索 → 精排 → prompt → 生成。返回 {answer, sources, context, timings}"""
+    import time
+
+    question = (question or "").strip()
+    if not question:
+        raise ValueError("问题不能为空")
+
+    retriever = retriever or get_default_retriever()
+    llm = llm or build_llm()
+
+    ranked, _, retrieval_ms = retrieve_and_rerank(retriever, question)
+    context, sources = format_context(ranked)
+    if not context:
+        # 知识库为空 / 检索全空：不调用模型，直接给可解释的空答案
+        return {"answer": "知识库中没有检索到相关内容。", "sources": [],
+                "context": "", "timings": {"retrieval_ms": retrieval_ms, "llm_ms": 0.0}}
+
+    prompt = build_prompt(context, question)
+    t0 = time.perf_counter()
     result = llm.invoke(prompt)
-    return result.content
+    llm_ms = round((time.perf_counter() - t0) * 1000, 1)
+    log.info("问答完成: %.1fs（检索 %.0fms / 生成 %.0fms）", (retrieval_ms + llm_ms) / 1000,
+             retrieval_ms, llm_ms)
+    return {"answer": result.content, "sources": sources, "context": context,
+            "timings": {"retrieval_ms": retrieval_ms, "llm_ms": llm_ms}}
+
+
+# ═══════════════ 默认检索器（CLI/脚本共用，构建一次复用） ═══════════════
+_default_retriever = None
+
+
+def get_default_retriever():
+    """构建或复用全局检索器（首次约 1-2 分钟：加载 embedding + 建向量库 + BM25）"""
+    global _default_retriever
+    if _default_retriever is None:
+        from hybrid_retriever import build_hybrid
+
+        config.assert_valid(require_api_key=False)
+        log.info("构建检索器（首次约 1-2 分钟）...")
+        _default_retriever = build_hybrid(str(config.KNOWLEDGE_DIR), config.EMBEDDING_MODEL)
+        log.info("检索器就绪")
+    return _default_retriever
+
+
+def build_knowledge_base(doc_dir, embedding_model_path):
+    """[DEPRECATED] 旧构建入口——只返回纯向量库，无 BM25 / Citation。
+
+    生产链路与评测请统一用 hybrid_retriever.build_hybrid()（含 chunk_id + BM25 + 溯源）。
+    保留仅供早期脚本兼容，勿在新代码中使用。
+    """
+    from langchain_chroma import Chroma
+    from langchain_huggingface import HuggingFaceEmbeddings
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+    from clean_pipeline import clean_document
+    from smart_loader import load_documents
+
+    documents = load_documents(doc_dir)
+    for doc in documents:
+        doc.page_content = clean_document(doc.page_content)
+
+    splitter = RecursiveCharacterTextSplitter(
+        separators=["\n\n", "\n", "。", "！", "？", "；", "，", " ", ""],
+        chunk_size=config.CHUNK_SIZE,
+        chunk_overlap=config.CHUNK_OVERLAP,
+    )
+    chunks = splitter.split_documents(documents)
+    embeddings = HuggingFaceEmbeddings(model_name=embedding_model_path)
+    return Chroma.from_documents(chunks, embeddings), embeddings
+
+
+def ask(question: str, retriever, llm, k: int | None = None) -> str:
+    """兼容版：只返回答案文本（旧脚本/旧界面用）"""
+    return answer(question, retriever=retriever, llm=llm)["answer"]
 
 
 def main():
-    # 构建混合检索器（向量 + BM25，含溯源）
-    from hybrid_retriever import build_hybrid
-    retriever = build_hybrid(DOC_DIR, EMBEDDING_MODEL_PATH)
+    config.setup_logging()
+    config.assert_valid()
 
-    # 配置大模型
-    llm = ChatOpenAI(
-        model="deepseek-chat",
-        api_key=DEEPSEEK_API_KEY,
-        base_url="https://api.deepseek.com",
-        temperature=0,
-    )
+    retriever = get_default_retriever()
+    llm = build_llm()
 
-    # 命令行问答
-    print("\n" + "=" * 40)
+    print("\n" + "=" * 44)
     print("知识库问答系统启动！输入问题，q 退出")
-    print("=" * 40)
+    print(f"知识库：{config.KNOWLEDGE_DIR}")
+    print("=" * 44)
     while True:
-        question = input("\n你问：").strip()
+        try:
+            question = input("\n你问：").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
         if question.lower() in ("q", "quit", "退出"):
             break
         if not question:
             continue
-        answer = ask(question, retriever, llm)
-        print(f"\n回答：{answer}")
+        try:
+            result = answer(question, retriever=retriever, llm=llm)
+        except Exception as exc:  # 单次问答失败不退出程序
+            log.error("问答失败：%s", exc)
+            print(f"\n❌ 出错了：{exc}")
+            continue
+        print(f"\n回答：{result['answer']}")
+        if result["sources"]:
+            print("\n引用：")
+            for s in result["sources"]:
+                print(f"  - {s['source']}")
 
 
 if __name__ == "__main__":

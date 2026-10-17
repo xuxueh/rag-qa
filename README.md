@@ -1,164 +1,158 @@
 # 📚 企业知识库问答系统（RAG）
 
-基于**检索增强生成（RAG）**的智能问答系统。让大模型能回答企业私有文档的问题，并且**有据可查、不瞎编**。
+基于**检索增强生成**的制度问答系统：答案必须能指出「哪份文件 · 第几条」，资料里没有就说不知道。
 
-## ✨ 功能
+不是"套一个 LLM 聊天框"，而是把**检索质量当工程问题来测、来量**——
+100 条逐条核验的测试集、三种方案的检索指标、失败案例归因，全部可复现。
 
-- 多格式知识库：**TXT / Markdown / PDF / Word** 自动解析（smart_loader）
-- **文档管理 API**：上传 / 删除文档，变更后自动重建检索器
-- **混合检索**：GTE 语义向量 + BM25 关键词（RRF 融合）
-- **Reranker 精排**：bge-reranker-v2-m3（本地，优雅降级）
-- **Citation 溯源**：答案标注"文件 · 第 X 条"
-- 防幻觉：文档里没有答案时，模型老实说「不知道」
-- **评测体系**：50 条 7 类分类测试集 + Recall@K / MRR / 回答正确率
+---
 
-## 🧠 生产链路
+## 当前状态（诚实版）
 
-```
-文档(上传/删除 → 自动重建)
-  → 文本清洗 → 句子边界切块(200字,实验验证最优)
-  → 混合检索（GTE语义 + BM25，RRF融合）
-  → bge-reranker 精排
-  → DeepSeek 生成（防幻觉 prompt）
-  → Answer + Citation（文件 · 第X条）
-```
-
-## 📊 评测结果
-
-**50 条 7 类分类测试集（简单事实/关键词/语义/多段/模糊/无答案/跨文档）**
-
-| 检索器 | Recall@1 | Recall@3 | Recall@5 | MRR |
-|---|---|---|---|---|
-| 纯向量（基线） | 62.8% | 79.1% | 83.7% | 0.716 |
-| 混合检索（RRF 双路 Top-K） | 72.1% | 83.7% | 97.7% | 0.815 |
-| **混合 + Rerank（生产链路）** | **93.0%** | **100%** | **100%** | **0.965** |
-
-> 严格的**条款级**评测（source + 条款都对）：生产链路 R@1 70.7% / R@3 92.7%
-> 同构建内对比验证：RRF 双路 Top-K 相比全库参与，rerank 链路 **R@1 +9.3pp、MRR +0.078**（`eval_rerank_pairwise.py`）
-
-**回答质量**：LLM-as-judge 评测 20/20 = **100% 正确率**
-
-**防幻觉**（`eval_abstention.py`，50 条含 7 条无答案）：
-
-| prompt 版本 | 正确回答率 | 正确拒答率 | 编造(FP) |
-|---|---|---|---|
-| 保守版（无答案即拒答） | 86.0% | **100%** | 0 |
-| **积极版（逐条核对不遗漏，当前默认）** | **97.7%** | 85.7% | 1（边界案例）|
-| 边界指令版（已弃用） | 90.7% | 85.7% | 1 |
-
-> 权衡说明：积极版回答率最高；FP=1 为"端午节发什么礼品"（知识库实际写了"端午发放节日礼品"，属部分相关信息）。可按业务在"保守/积极"间选择。
-
-**Ragas 深度指标**：context_precision **1.000** / answer_relevancy **0.955** / faithfulness 0.648（引用标注口径偏差）
-
-**性能**：单次问答约 5-9s（本地 rerank 为主），单次约 400-500 tokens
-
-**关键实验结论**（各实验脚本可复现）：
-- RRF 双路 Top-K > 全库参与（详见验证组 2-4）
-- RRF 会把"单路高排名"的正确项挤出候选 → **rerank 弥补**（跨文档 R@1 +28.5pp）
-- chunk 大小权衡：chunk 越大召回越宽但排序越差 → **200 最优**
-- Multi-Query 对标准表述无提升 → 未集成（评测驱动决策）
-- 召回池 5 → 10（池内命中 86% → 95.3%）
-- prompt"逐条核对不遗漏"修复 3/3 真漏答（回答率 86% → 97.7%）
-
-## 🚀 快速开始
-
-### 1. 安装依赖
-```bash
-pip install -r requirements.txt
-```
-
-### 2. 下载模型（ModelScope）
-```python
-from modelscope import snapshot_download
-snapshot_download('iic/nlp_gte_sentence-embedding_chinese-small', local_dir='data/models/gte-small')
-snapshot_download('BAAI/bge-reranker-v2-m3', local_dir='data/models/bge-reranker-v2-m3')
-```
-
-### 3. 配置 `.env`（已被 gitignore，不会上传）
-```bash
-DEEPSEEK_API_KEY=sk-你的key
-EMBEDDING_MODEL=你的GTE模型本地路径
-```
-在 `rag_qa.py` 中修改 `DOC_DIR` 为知识库目录。
-
-### 4. 运行
-```bash
-# 命令行问答
-python rag_qa.py
-
-# API + 网页界面（http://127.0.0.1:8000）
-python run_server.py
-
-# Streamlit 界面
-streamlit run rag_app.py
-
-# 评测
-python eval_v2.py               # Recall@K/MRR 分类评测
-python eval_v2_rerank.py        # rerank 效果对比
-python eval_answer_quality.py   # 回答质量（LLM-as-judge）
-```
-
-## 🛠️ 文档管理 API
-
-```
-GET    /documents              列出知识库文档
-POST   /documents/upload       上传（txt/md/pdf/docx）→ 自动重建
-DELETE /documents/{name}       删除 → 自动重建
-```
-
-## 🧠 技术栈
-
-| 组件 | 用途 |
+| 项 | 状态 |
 |---|---|
-| LangChain | RAG 流水线编排 |
-| Chroma | 向量数据库 |
-| GTE (中文) | 语义向量化 |
-| BM25 + jieba | 关键词检索 |
-| bge-reranker-v2-m3 | 精排 |
-| DeepSeek API | 生成 |
-| pypdf / python-docx | PDF / Word 解析 |
-| FastAPI / Streamlit | API + 界面 |
-| Docker | 部署（Dockerfile） |
+| 自动化测试 | 61 个 pytest 用例通过（不加载模型、不联网，约 45 秒） |
+| 检索评测 | 100 条核验测试集（6 类），三方案对比已完成，见 [评测报告](docs/评测报告-v3.md) |
+| 端到端 | `/ask`、`/documents`、上传/删除 + 自动重建（失败回滚）已实测，见 [演示记录](docs/演示记录.md) |
+| 生成质量 | 定性抽查 + 历史 50 条集 LLM-as-judge；**100 条集的生成侧评测未做** |
+| Docker | `Dockerfile` 存在但**未验证可跑** |
 
-## 📁 项目结构
+---
+
+## 1. 它解决什么问题
+
+直接问大模型「婚假几天」，它会编一个数字。企业制度问答的真实要求是：
+
+1. **可溯源**：答案要能点开原文（`03-请假管理制度.txt · 第五条`）
+2. **宁缺勿编**：知识库没写就拒答，而不是"合理地猜"
+3. **定位准**：不只是"这份制度里有"，而是"第几条"
+
+## 2. 链路
 
 ```
-rag-qa/
-├── rag_qa.py               # 命令行主程序（生产链路）
-├── rag_api.py              # FastAPI v3（问答 + 文档管理）
-├── rag_app.py              # Streamlit 界面
-├── run_server.py           # 启动脚本
-├── hybrid_retriever.py     # 混合检索（RRF + Citation）
-├── rerank.py               # bge-reranker 精排
-├── smart_loader.py         # 多格式加载（txt/md/pdf/docx）
-├── clean_pipeline.py       # 文本清洗
-├── query_rewrite.py        # Multi-Query（评测后未集成，可选）
-├── static/index.html       # 问答网页
-├── eval_set.json           # 20 条基础评测集
-├── eval_set_v2.json        # 50 条 7 类分类评测集
-├── eval_v2.py              # Recall@K/MRR 评测
-├── eval_v2_rerank.py       # rerank 对比
-├── eval_answer_quality.py  # 回答质量（LLM-as-judge）
-├── eval_failure_analysis.py# 失败案例诊断
-├── eval_chunk_experiment.py# chunk 参数实验
-├── eval_perf.py            # 性能监控
-├── Dockerfile
-└── README.md
+问题 → 混合检索（向量 Top-10 + BM25 Top-10 → RRF 融合）→ Reranker 精排 Top-3
+     → prompt（带 [来源：文件 · 第X条]）→ DeepSeek 生成 → 答案 + 引用
 ```
 
-## 🔜 待优化（诚实清单）
+```mermaid
+flowchart LR
+    Q[用户问题] --> H[混合检索<br/>向量 + BM25]
+    H -->|RRF 融合 Top-10| R[Reranker 精排<br/>bge-reranker-v2-m3]
+    R -->|Top-3 + citation| P[Prompt 组装<br/>防幻觉约束]
+    P --> L[DeepSeek]
+    L --> A[答案 + 引用来源]
+    KB[(12 份制度文档<br/>47 个 chunk)] --> H
+```
 
-### ✅ 本轮已完成
-- [x] **chunk-level 评测** → `eval_gold_article.py`（条款级 gold 自动标注 41/43，量化假阳性 15.5pp）
-- [x] **无答案检测指标** → `eval_abstention.py`（TP/FP/FN/TN，拒答率 100%、编造 0）
-- [x] **PDF 页码级 Citation** → `ChunkMeta.citation()`：文件 · 条款 · 页码（1-based）
-- [x] **检索数据结构重构** → ChunkMeta + chunk_id（Chroma id = chunk_id，杜绝文本冲突）
-- [x] 端到端评测 → `eval_e2e.py`（完整链路明细 + 耗时 + Token）
-- [x] 召回池实验 → `eval_recall_pool.py`（5/10/20 池天花板对比）
+详细架构、时序图见 [docs/架构.md](docs/架构.md)；逐模块代码讲解见 [docs/代码导读.md](docs/代码导读.md)。
 
-### ⏳ 待做
-- [ ] Ragas 深度指标（Faithfulness / Context Precision）——当前自建 LLM-judge 已覆盖核心
-- [ ] Docker 实际构建运行（Dockerfile 已就绪，未验证镜像可跑）
-- [ ] 网页上传界面（文档管理 API 已支持，HTML 界面待加按钮）
-- [ ] 6 条 FN 漏答分析（无答案检测中"有答案却拒答"的案例优化）
-- [ ] RRF 候选集实验（当前 BM25 全库参与融合，对比"双路各取 Top-K 再融合"）
+## 3. 效果（100 条测试集，90 条有答案）
+
+**条款级 Recall@1**（文件名 **且** 条款号都对，是最严格的口径）：
+
+| 方案 | Recall@1 | Recall@3 | MRR | 单次检索耗时（CPU） |
+|---|---|---|---|---|
+| A 纯向量 | 52.2% | 74.4% | 0.658 | 26 ms |
+| B 混合检索（RRF） | 73.3% | 92.2% | 0.835 | 25 ms |
+| **C 混合 + Reranker（生产链路）** | **94.4%** | **98.9%** | **0.967** | 6111 ms |
+
+要点：
+- 混合检索比纯向量 **+21.1pp**，且不增加延迟 → 纯赚
+- rerank 再 **+21.1pp**，代价是 240 倍延迟（CPU）→ 明确的取舍，不是免费的
+- rerank 只提升"排序"，**R@10 从 B 起就是 100%**：召回池决定上限
+- 相似条款辨析类（同一件事在两份制度里各写一遍）纯向量 R@1 只有 33%，加 rerank 到 100%
+
+完整数据、分类型指标、失败案例归因、无答案拒答阈值实验：**[评测报告](docs/评测报告-v3.md)**
+
+## 4. 快速开始
+
+```bash
+# 1) 依赖
+pip install -r requirements.txt          # 开发/测试：requirements-dev.txt
+
+# 2) 模型（二选一）
+#    ① 下载到仓库 models/ 下（.env.example 默认指向这里）
+modelscope download --model iic/nlp_gte_sentence-embedding_chinese-small --local_dir models/gte-small
+modelscope download --model BAAI/bge-reranker-v2-m3 --local_dir models/bge-reranker-v2-m3
+#    ② 或直接把 EMBEDDING_MODEL / RERANK_MODEL 设成模型 ID
+
+# 3) 配置（.env 不进 git，密钥只放这里或系统环境变量）
+cp .env.example .env
+#   编辑 .env：DEEPSEEK_API_KEY=sk-xxx，EMBEDDING_MODEL / RERANK_MODEL
+
+# 4) 配置自检（有问题会直接告诉你改哪个变量）
+python config.py
+```
+
+三种用法：
+
+```bash
+python rag_qa.py          # 命令行问答
+python run_server.py      # API + 网页（http://127.0.0.1:8000，页面自带上传/删除）
+streamlit run rag_app.py  # Streamlit 界面
+```
+
+## 5. 接口
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/ask` | `{"question": "..."}` → `{answer, sources[], timings}` |
+| GET | `/health` | 配置问题、检索器状态、文档数/chunk 数 |
+| GET | `/documents` | 文档列表（名称/大小/修改时间） |
+| POST | `/documents/upload` | 上传 txt/md/pdf/docx → 自动重建；**重建失败自动回滚** |
+| DELETE | `/documents/{name}` | 删除 → 自动重建；**重建失败自动恢复文件** |
+
+接口文档：<http://127.0.0.1:8000/docs>
+
+## 6. 评测怎么跑
+
+```bash
+python verify_eval_set.py     # 测试集门禁：条款号存在 + evidence 能在原文逐字命中
+python eval_v3.py             # 三方案对比（约 12 分钟，主要在 CPU 精排）
+python eval_v3.py --no-rerank # 只跑 A/B（约 40 秒）
+python -m pytest              # 61 个用例：配置/清洗/加载/检索融合/API/精排降级
+```
+
+测试集：`eval_set_v3.json`（100 条 = 普通事实 25 / 条款编号 15 / 数字金额时间 20 /
+相似条款辨析 15 / 跨文档 15 / 无答案 10），每条带文件名 + 条款号 + 原文摘录。
+
+## 7. 工程化做了什么
+
+- **配置集中**：`config.py` 唯一入口；模型路径与密钥走环境变量，换机器只改 `.env`；
+  启动自检一次列出所有问题（并给出改法）
+- **异常可读**：解析失败/模型缺失/配置错误都返回"原因 + 怎么修"，不裸抛 500
+- **数据一致性**：上传先落临时文件再原子替换；重建失败回滚文件、保留旧索引
+- **离线安全**：本地模型目录自动关闭 HF 联网校验（否则无网环境会卡十几分钟）
+- **日志分级**：`LOG_LEVEL=INFO/DEBUG`；检索耗时、重建耗时、降级原因都有记录
+- **可降级**：reranker 不可用 → 自动退回混合检索排序，服务不中断（`USE_RERANK=0` 可强制关闭）
+
+## 8. 目录
+
+```
+config.py              配置中心          rag_qa.py        链路编排 + CLI
+rag_api.py             FastAPI 服务      run_server.py    启动脚本
+hybrid_retriever.py    混合检索 RRF      rerank.py        精排（可降级）
+smart_loader.py        多格式加载        clean_pipeline.py 文本清洗
+知识库/                12 份制度文档     static/index.html 问答页面
+eval_set_v3.json       100 条测试集      eval_v3.py       三方案评测
+verify_eval_set.py     测试集门禁        tests/           61 个 pytest 用例
+docs/                  架构/代码导读/技术方案/评测报告/演示记录/规划
+```
+
+## 9. 已知问题与规划
+
+见 [docs/已知问题与规划.md](docs/已知问题与规划.md)。最要紧的三条：
+1. CPU 上精排 6.1 s/次，是端到端延迟的主要来源
+2. 语料只有 47 个 chunk，R@10 已接近饱和，评测灵敏度有限
+3. 100 条集的**生成侧**评测还没做（本轮只做检索侧）
+
+## 10. 文档索引
+
+| 文档 | 给谁看 |
+|---|---|
+| [docs/代码导读.md](docs/代码导读.md) | 想读懂代码、要能讲清链路的人（含自查清单、练手任务） |
+| [docs/架构.md](docs/架构.md) | 关心模块划分、时序、部署形态的人 |
+| [docs/技术方案.md](docs/技术方案.md) | 关心"为什么这么选"和证据的人 |
+| [docs/评测报告-v3.md](docs/评测报告-v3.md) | 关心数字是否可信、失败在哪的人 |
+| [docs/演示记录.md](docs/演示记录.md) | 想直接看真实运行输出的人 |
+| [docs/已知问题与规划.md](docs/已知问题与规划.md) | 关心后续路线与边界的人 |

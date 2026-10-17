@@ -1,0 +1,4 @@
+# 开发/测试依赖
+-r requirements.txt
+pytest
+httpx          # fastapi.testclient 依赖
